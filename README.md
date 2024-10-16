@@ -1,4 +1,4 @@
-# Moodle Content API
+# Learning Tools Content API
 
 This program is designed to read content from a Moodle system, sanitize it, and save it as text or publish it to a LLM vector store like faiss.
 
