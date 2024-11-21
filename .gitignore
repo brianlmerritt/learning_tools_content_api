@@ -5,3 +5,5 @@ __pycache__
 *.xlsx
 *.json
 .venv
+course_data/
+!course_data/.gitkeep

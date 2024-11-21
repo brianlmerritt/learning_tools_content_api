@@ -49,9 +49,12 @@ class moodle_content_helpers:
         self.save_item_raw(course_files, course_idnumber, f"{course_idnumber}_files")
 
     def save_item_raw(self, item_to_save, directory, filename):
-        if isinstance(item_to_save, pd.DataFrame) or isinstance(item_to_save, pd.Series):
+        if isinstance(item_to_save, pd.DataFrame) :
             os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
             item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", index=False)
+        elif isinstance(item_to_save, pd.Series):
+            os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
+            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", header=False)
         elif isinstance(item_to_save, dict):
             with open(f"{self.data_store_path}{directory}/{filename}.json", "w") as file:
                 json.dump(item_to_save, file)

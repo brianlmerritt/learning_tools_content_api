@@ -123,22 +123,13 @@ class mod_book:
             return chapters
 
 
-    # This gets all books but not all book content for a course via course_resources
     def get_book_content(self, course_modules, course, course_resources):
         """
         Extract contents from book modules and combine with course information.
-        
-        Args:
-            course_modules: DataFrame containing module information
-            course: Dictionary containing course metadata
-            course_resources: DataFrame containing resource information
-            
-        Returns:
-            DataFrame with book metadata and extracted contents
+        Returns one row per chapter while preserving book metadata.
         """
         book_modules = course_modules[course_modules['modname'] == 'book']
         book_contents = self.moodle_rest.get_mod_books_in_course(course.get('id'))
-        # print(book_contents)
         results = []
 
         for _, book_contents in book_modules.iterrows():
@@ -165,14 +156,30 @@ class mod_book:
                 except:
                     toc = []
 
-            # Process chapters and get file usage info
+            # Process chapters
             chapters = self.process_book_chapters(contents, book_data, course)
             
-            book_data.update({
-                'toc': toc,
-                'chapters': chapters
-            })
-            
-            results.append(book_data)
+            # Create one row per chapter, maintaining book metadata
+            for chapter in chapters:
+                chapter_row = {
+                    # Book metadata first
+                    **book_data,
+                    'toc': toc,
+                    # Chapter details after
+                    'chapter_id': chapter['chapter_id'],
+                    'chapter_content': chapter['chapter_content'],
+                    'chapter_type': chapter['chapter_type'],
+                    'files': chapter['files'],
+                    'title': chapter['title'],
+                    'filepath': chapter['filepath'],
+                    'fileurl': chapter['fileurl'],
+                    'time_modified': chapter['time_modified'],
+                    'sortorder': chapter['sortorder'],
+                    'tags': chapter['tags'],
+                    'clean_html': chapter.get('clean_html'),
+                    'clean_text': chapter.get('clean_text')
+                }
+                results.append(chapter_row)
 
         return pd.DataFrame(results)
+
