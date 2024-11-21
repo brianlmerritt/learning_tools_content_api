@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 from lib.content_cleaners import content_cleaners
 from lib.content_utilities import content_utilities
+from lib.event_logger import EventLogger
 
 
 class mod_resource:
@@ -15,7 +16,7 @@ class mod_resource:
         self.content_cleaner = content_cleaners()
         self.content_utilities = content_utilities()
         self.moodle_rest = moodle_rest
-
+        self.event_logger = EventLogger()
 
     def get_context_from_url(self, url):
         parsed_url = urlparse(url)

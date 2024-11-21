@@ -8,11 +8,13 @@ import re
 from urllib.parse import urlparse, parse_qs
 from lib.content_cleaners import content_cleaners
 from lib.content_utilities import content_utilities
+from lib.event_logger import EventLogger
 
 class block_content:
     def __init__(self) -> None:
         self.content_cleaner = content_cleaners()
         self.content_utilities = content_utilities()
+        self.event_logger = EventLogger()
 
     def get_block_content(self, course_blocks: pd.DataFrame, course_info: Dict[str, Any], course_resources: pd.DataFrame) -> pd.DataFrame:
         """

@@ -137,7 +137,7 @@ class moodle_rest:
 
     def extract_block_configs(self, block, key):
         #if block['name']  == 'html':
-        configs = block['configs']
+        configs = block.get('configs', None)
         if configs is not None and isinstance(configs, (list, tuple, set)):
             for item in configs:
                 if item.get('name') == key:
