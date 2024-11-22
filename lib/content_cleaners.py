@@ -84,7 +84,7 @@ class content_cleaners:
         elif isinstance(block_data, list):
             return [self.clean_encoding_artifacts(x) for x in block_data]
         elif isinstance(block_data, str):
-            return block_data.replace('Â ', '')
+            return block_data.replace('Â ', '').replace('Â ', '').replace('Â ', '').replace('Â', '')
         return block_data
 
     def extract_and_save_embedded_images(self, html_content: str, output_path: str, 
