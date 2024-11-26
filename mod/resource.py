@@ -10,7 +10,7 @@ from lib.content_cleaners import content_cleaners
 from lib.content_utilities import content_utilities
 from lib.event_logger import EventLogger
 
-
+# Todo move this to moodle_mod_helper
 class mod_resource:
     def __init__(self, moodle_rest) -> None:
         self.content_cleaner = content_cleaners()

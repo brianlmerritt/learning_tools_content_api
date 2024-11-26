@@ -21,6 +21,6 @@ current_courses = moodle_rest_connection.get_matching_courses('idnumber', idnumb
 for _, current_course in current_courses.iterrows():
     course, course_modules, course_sections, course_blocks, course_resources = moodle_content_helper.set_course(current_course['id'])
     print(f"\n\nCurrent Course: {course['fullname']}")
-    block_content, book_content, course_sections, course_file_content, course_resources = moodle_content_helper.get_course_content(course, course_modules, course_sections, course_blocks, course_resources)
-    moodle_content_helper.save_course_data(course, course_sections, course_resources, block_content, book_content, course_file_content)
+    block_content, book_content, course_page_content, course_label_content, course_sections, course_file_content, course_resources = moodle_content_helper.get_course_content(course, course_modules, course_sections, course_blocks, course_resources)
+    moodle_content_helper.save_course_data(course, course_sections, course_resources, block_content, book_content, course_file_content, course_page_content, course_label_content)
 

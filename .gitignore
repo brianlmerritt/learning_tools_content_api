@@ -7,3 +7,4 @@ __pycache__
 .venv
 course_data/
 !course_data/.gitkeep
+* copy*py

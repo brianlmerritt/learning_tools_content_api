@@ -23,3 +23,21 @@ class content_utilities:
             except IndexError:
                 return None
         return None
+    
+    def extract_item_id(self, filepath: str, fileurl: str) -> int:
+        """Extract item ID from filepath or fileurl"""
+        
+        # Let's try filepath first
+        filepath = filepath.rstrip('/')
+        parts = filepath.split('/')
+        for part in reversed(parts):
+            if part.isdigit():
+                return int(part)
+        
+        # Check if fileurl contains 'webservice/pluginfile.php/' followed by a number
+        if 'webservice/pluginfile.php/' in fileurl:
+            number_part = fileurl.split('webservice/pluginfile.php/')[1].split('/')[0]
+            if number_part.isdigit():
+                return int(number_part)
+                
+        return None

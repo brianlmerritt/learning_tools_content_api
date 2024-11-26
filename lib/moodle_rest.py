@@ -3,55 +3,97 @@ import httpx
 import json
 import os
 from dotenv import load_dotenv
+from lib.event_logger import EventLogger
+from typing import Optional, Dict, Any
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-load_dotenv()
+class MoodleRESTError(Exception):
+    """Custom exception for Moodle REST API errors"""
+    pass
 
-moodle_token = os.getenv('MOODLE_TOKEN')
-moodle_url = os.getenv('MOODLE_URL')
-moodle_user = os.getenv('MOODLE_USER')
-moodle_password = os.getenv('MOODLE_PASSWORD')
-idnumber_search = os.getenv('IDNUMBER_SEARCH')
+class DatabaseConnectionError(MoodleRESTError):
+    """Raised when database connection issues occur"""
+    pass
 
 class moodle_rest:
     def __init__(self):
-        self.moodle_token = moodle_token
-        self.moodle_url = moodle_url
-        self.moodle_user = moodle_user
-        self.moodle_password = moodle_password
+        load_dotenv()
+
+        self.moodle_api_token = os.getenv('MOODLE_TOKEN')
+        self.moodle_url = os.getenv('MOODLE_URL')
+        self.moodle_user = os.getenv('MOODLE_USER')
+        self.moodle_password = os.getenv('MOODLE_PASSWORD')
         self.rest_endpoint = '/webservice/rest/server.php'
+        self.event_logger = EventLogger()
+        self.headers = {"Accept": "application/json"}
+        self.timeout = 60
+        self.max_retries = 3
+        self.retry_delay = 5  # seconds
+
+        # Initialize connection
+        self.initialize_connection()
+
+  
+    def initialize_connection(self):
+        """Initialize connection and required data with retry logic"""
+        try:
+            self.moodle_web_token = self.get_moodle_web_token()
+            self.moodle_courses = None
+            self.current_course = None
+            self.current_course_blocks = None
+            self.current_course_modules = None
+            self.current_course_sections = None
+            self.current_course_content = None
+            self.current_course_resources = None
+            self.get_courses()
+        except Exception as e:
+            self.event_logger.log_data("initialization_error", f"Failed to initialize Moodle connection: {str(e)}")
+            raise
+
+    def get_moodle_web_token(self):
         response = httpx.get(
-            f"{moodle_url}/login/token.php?username={moodle_user}&password={moodle_password}&service=moodle_mobile_app",
+            f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=moodle_mobile_app",
             timeout=300  # Set timeout to 5 minutes (300 seconds)
         )
         if response.status_code == 200:
-            self.moodle_token = response.json().get('token')
+            return response.json().get('token')
         else:
             raise Exception(f"Failed to get token: {response.text}")
-        self.moodle_courses = None
-        self.current_course = None
-        self.current_course_blocks = None
-        self.current_course_modules = None
-        self.current_course_sections = None
-        self.current_course_content = None
-        self.current_course_resources = None
-        self.headers = {"Accept": "application/json"}
-        self.timeout = 60 # let's not be too hasty
-        self.get_courses()
-
-  
+        
+        
     def get_courses(self):
         if self.moodle_courses is None:
             response = self.get_moodle_rest_request('core_course_get_courses')
             self.moodle_courses = pd.DataFrame(response)
         return self.moodle_courses
 
-    
-    def get_book_chapter(self, book_url):
+    # Get the html content of a Moodle file (index.html) object
+    def get_moodle_web_file_content(self, moodle_file_url):
         try:
-            html = httpx.get(f'{book_url}?token={self.moodle_token}')
-            return html.text
-        except:
-            print(f"Error getting book chapter {book_url}")
+            token_param = f'token={self.moodle_web_token}'
+            separator = '&' if '?' in moodle_file_url else '?'
+            response = httpx.get(
+                f'{moodle_file_url}{separator}{token_param}',
+                timeout=300  # 5 minutes in seconds
+            )
+            response.raise_for_status()
+            
+            try:
+                # Try to parse as JSON
+                json_content = response.json()
+                # If it's JSON and has error, log the error
+                if 'error' in json_content:
+                    self.event_logger.log_data("get moodle web file content error", f"Error in response: {json_content['error']}")
+                # If it's JSON but no error (shouldn't happen), fall through to return text
+            except ValueError:
+                # Not JSON, so must be HTML - this is the expected case
+                pass
+            
+            # Return the raw text content in all success cases
+            return response.text
+            
+        except Exception as e:
+            self.event_logger.log_data("Unknown error getting html moodle content", f"Error getting moodle file content for {moodle_file_url}: {str(e)}")
             return None
 
 
@@ -74,7 +116,7 @@ class moodle_rest:
         except:
             return None
 
-    def set_course(self, course_id):
+    def set_course_old(self, course_id):
         self.current_course = course_id
         self.current_course_blocks = pd.DataFrame(self.get_moodle_rest_request('core_block_get_course_blocks', courseid=course_id)['blocks'])
         self.current_course_content = pd.DataFrame(self.get_moodle_rest_request('core_course_get_contents', courseid=course_id))
@@ -89,6 +131,41 @@ class moodle_rest:
         self.current_course_modules = course_modules
         self.current_course_blocks = self.get_block_content(course_id) # Append block_text and block_title to block content
         return self.get_course(course_id)
+
+
+    def set_course(self, course_id: int) -> Optional[Dict[str, Any]]:
+        """Set current course with enhanced error handling"""
+        try:
+            self.current_course = course_id
+            
+            # Get course blocks with retry
+            blocks_response = self.get_moodle_rest_request('core_block_get_course_blocks', courseid=course_id)
+            self.current_course_blocks = pd.DataFrame(blocks_response['blocks'])
+            
+            # Get course content with retry
+            content_response = self.get_moodle_rest_request('core_course_get_contents', courseid=course_id)
+            self.current_course_content = pd.DataFrame(content_response)
+            
+            # Get resources with retry
+            resources_response = self.get_moodle_rest_request('mod_resource_get_resources_by_courses', courseids=[course_id])
+            self.current_course_resources = pd.DataFrame(resources_response['resources'])
+            
+            # Process course modules
+            course_modules = pd.DataFrame()
+            for _, course_section in self.current_course_content.iterrows():
+                modules_to_add = pd.DataFrame(course_section['modules'])
+                modules_to_add['section_id'] = course_section['id']
+                course_modules = pd.concat([course_modules, modules_to_add], ignore_index=True)
+            
+            self.current_course_sections = self.current_course_content.drop(columns=['modules'])
+            self.current_course_modules = course_modules
+            self.current_course_blocks = self.get_block_content(course_id)
+            
+            return self.get_course(course_id)
+            
+        except Exception as e:
+            self.event_logger.log_data("set_course_error", f"Error setting course {course_id}: {str(e)}")
+            raise
 
     def get_matching_courses(self, field='id', value=None):
         if "*" in value:
@@ -176,11 +253,25 @@ class moodle_rest:
         else:
             return {prefix: in_args} if prefix else {prefix: str(in_args)}
 
+    def check_database_error(self, response_data: Dict[str, Any]) -> None:
+        """Check for database-related errors in the response"""
+        if isinstance(response_data, dict):
+            if "exception" in response_data:
+                error_msg = response_data.get('message', '')
+                if 'odbc_exec' in error_msg or 'database' in error_msg.lower():
+                    raise DatabaseConnectionError(f"Database connection error: {error_msg}")
+                raise MoodleRESTError(f"Moodle API Error: {error_msg}")
+
+
     # Call Moodle API - note does not throw exception on error
-    def get_moodle_rest_request(self, moodle_function , **kwargs):
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def get_moodle_rest_request(self, moodle_function: str, **kwargs) -> Dict[str, Any]:
+        """
+        Enhanced Moodle REST API request with retry logic and better error handling
+        """
         parameters = dict(self.flatten_api_parameters(kwargs))
         parameters.update({
-            "wstoken": self.moodle_token,
+            "wstoken": self.moodle_api_token,
             "moodlewsrestformat": "json",
             "wsfunction": moodle_function
         })
@@ -190,27 +281,43 @@ class moodle_rest:
                 self.moodle_url + self.rest_endpoint,
                 params=parameters,
                 headers=self.headers,
-                timeout=600  # Set timeout to 10 minutes (600 seconds)
+                timeout=600
             )
+            
+            # Log non-200 responses
+            if response.status_code != 200:
+                self.event_logger.log_data(
+                    "api_error",
+                    f"Non-200 response: {response.status_code} - {response.text}"
+                )
+                response.raise_for_status()
+
             response_data = response.json()
-            # Check for Moodle API error responses
-            if isinstance(response_data, dict) and "exception" in response_data:
-                print(f"Moodle API Error: {response_data['message']}")
-                print(f"Error Code: {response_data.get('errorcode')}")
-                print(f"Debug Info: {response_data.get('debuginfo', 'No debug info available')}")
-                raise Exception(f"Moodle API Error: {response_data['message']}")
+            
+            # Check for database errors
+            self.check_database_error(response_data)
             
             return response_data
-        
-        except httpx.RequestError as e:
-            #print(f"Request Error: {str(e)}")
-            raise Exception(f"Request Error: {str(e)}")
-        except json.JSONDecodeError as e:
-            #print(f"JSON Decode Error: {str(e)}")
-            raise Exception(f"JSON Decode Error: {str(e)}")
-        except Exception as e:
-            print(f"Unexpected Error Parameters: {parameters}, response: {response_data}")
-            raise Exception(f"Unexpected Error: {str(e)}")
-        
 
+        except DatabaseConnectionError:
+            # Log database errors and retry
+            self.event_logger.log_data("database_error", "Database connection issue detected")
+            # Sleep before retry
+            time.sleep(self.retry_delay)
+            raise  # Let retry decorator handle it
+            
+        except httpx.RequestError as e:
+            self.event_logger.log_data("request_error", f"Request failed: {str(e)}")
+            raise MoodleRESTError(f"Request Error: {str(e)}")
+            
+        except json.JSONDecodeError as e:
+            self.event_logger.log_data("json_error", f"JSON decode error: {str(e)}")
+            raise MoodleRESTError(f"JSON Decode Error: {str(e)}")
+            
+        except Exception as e:
+            self.event_logger.log_data(
+                "unexpected_error",
+                f"Unexpected error with parameters: {parameters}, error: {str(e)}"
+            )
+            raise MoodleRESTError(f"Unexpected Error: {str(e)}")
        

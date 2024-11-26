@@ -5,3 +5,4 @@ matplotlib==3.8.0
 numpy==1.26.3
 pandas==2.1.4
 python-dotenv==0.21.0
+tenacity==9.0.0

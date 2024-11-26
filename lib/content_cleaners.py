@@ -13,32 +13,24 @@ class content_cleaners:
     def __init__(self) -> None:
         self.event_logger = EventLogger()
 
-
     def clean_text(self, text):
         import re
         from html import unescape
-        
         # Handle unicode escapes first
         try:
             text = text.encode('utf-8').decode('unicode-escape')
         except:
             pass
-        
         # Remove escaped quotes at start/end if present
         text = text.strip('"\'')
-        
         # Unescape HTML entities
         text = unescape(text)
-        
         # Remove escaped HTML tags
         text = re.sub(r'<\\?/?\w+>', '', text)
-        
         # Convert \r\n to spaces
         text = re.sub(r'\s*\\r\\n\s*', ' ', text)
-        
         # Remove multiple spaces
         text = re.sub(r'\s+', ' ', text)
-        
         # Final trim
         return text.strip()
 
@@ -46,13 +38,10 @@ class content_cleaners:
     def clean_url(self, url):
         # Remove leading/trailing quotes of any type
         url = url.strip('"\'')
-        
         # Remove any remaining escaped quotes
         url = url.replace('\\"', '')
-        
         # Remove escaped slashes
         url = url.replace('\\/', '/')
-        
         return url
 
 
@@ -87,9 +76,9 @@ class content_cleaners:
             return block_data.replace('Â ', '').replace('Â ', '').replace('Â ', '').replace('Â', '')
         return block_data
 
-    def extract_and_save_embedded_images(self, html_content: str, output_path: str, 
+    def extract_and_save_embedded_images(self, html_content: str, output_path: str,
                                     content_source: str, object_cmid: str, object_name: str, 
-                                    chapter_id: str) -> str:
+                                    item_id: str) -> str:
         """
         Extract base64 embedded images, save them, and replace with localhost links.
         Logs any encountered non-image data: types.
@@ -100,7 +89,7 @@ class content_cleaners:
             content_source: Source type (e.g., 'book', 'page', etc.)
             object_cmid: CMID of the content object
             object_name: Name of the content object
-            chapter_id: Chapter ID
+            item_id: Subcomponent or Item ID
             
         Returns:
             Modified HTML with embedded images replaced by localhost links
@@ -128,7 +117,7 @@ class content_cleaners:
                 # If it's not an image type, log it and continue
                 if not data_type.startswith('data:image'):
                     log_message = (f"Unhandled data type in {content_source} {object_name} "
-                                f"(cmid: {object_cmid}, chapter: {chapter_id}): {data_type}")
+                                f"(cmid: {object_cmid}, chapter: {item_id}): {data_type}")
                     self.event_logger.log_data(f'Unhandled embedded content type', log_message)
                     continue
                 
@@ -144,7 +133,7 @@ class content_cleaners:
                 clean_object_name = re.sub(r'[^\w\-_]', '_', object_name)
                 
                 # Generate filename
-                filename = f"{object_cmid}_{clean_object_name}_{chapter_id}_{image_count}.{image_format}"
+                filename = f"{object_cmid}_{clean_object_name}_{item_id}_{image_count}.{image_format}"
                 filepath = os.path.join(output_path, filename)
                 
                 try:
@@ -158,8 +147,65 @@ class content_cleaners:
                     img['src'] = new_src
                     
                 except Exception as e:
-                    error = f"Error processing image in {content_source} {object_name} cmid {object_cmid} chapter {chapter_id}: {str(e)}"
+                    error = f"Error processing image in {content_source} {object_name} cmid {object_cmid} chapter {item_id}: {str(e)}"
                     self.event_logger.log_data(f'Error processing {content_source} embedded image', error)
                     continue
         
         return str(soup)
+    
+    def process_html_content(self, html_content: str, output_path: str, modtype: str, 
+                            module_id: str = None, 
+                            module_name: str = None, item_id: str = None) -> Dict[str, str]:
+        """Process HTML content and return cleaned versions"""
+        if not html_content:
+            return {
+                'content': '',
+                'clean_html': '', 
+                'cleanest_html': '', 
+                'clean_text': ''
+            }
+            
+        html_content = html_content.encode('ascii', 'ignore').decode('ascii')
+        
+        # Extract and save embedded images
+        html_content = self.extract_and_save_embedded_images(
+            html_content, output_path, modtype, module_id, 
+            module_name, item_id
+        )
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Process URLs
+        for tag in soup.find_all(['img', 'video', 'audio', 'source', 'a']):
+            attr = 'href' if tag.name == 'a' else 'src'
+            if url := tag.get(attr):
+                cleaned_url = self.clean_url(url)
+                tag[attr] = cleaned_url
+        
+        # Create cleanest version
+        cleanest_soup = BeautifulSoup(str(soup), 'html.parser')
+        for tag in cleanest_soup.find_all(['style', 'script']):
+            tag.decompose()
+        for tag in cleanest_soup.find_all():
+            if tag.attrs:
+                tag.attrs = {k:v for k,v in tag.attrs.items() 
+                           if k in ['href', 'src', 'alt']}
+        
+        cleaned_html = str(soup)
+        cleanest_html = str(cleanest_soup)
+        cleaned_text = self.clean_text(soup.get_text(separator=' '))
+        
+        # Truncate if necessary
+        if len(cleaned_html) > 32000:
+            cleaned_html = cleaned_html[:32000]
+            self.event_logger.log_data(
+                f'{modtype} content truncated',
+                f"{modtype} id {module_id} Item ID: {item_id} Content: {cleaned_html}"
+            )
+            
+        return {
+            'content': cleaned_html,
+            'clean_html': cleaned_html,
+            'cleanest_html': cleanest_html,
+            'clean_text': cleaned_text
+        }

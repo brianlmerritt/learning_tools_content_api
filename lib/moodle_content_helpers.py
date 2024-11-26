@@ -9,6 +9,8 @@ from urllib.parse import urlparse, parse_qs
 from lib.content_cleaners import content_cleaners
 from block.block_content import block_content
 from mod.book import mod_book
+from mod.page import mod_page
+from mod.label import mod_label
 from mod.resource import mod_resource
 
 class moodle_content_helpers:
@@ -18,6 +20,8 @@ class moodle_content_helpers:
         self.content_cleaner = content_cleaners()
         self.block_content = block_content()
         self.book_content = mod_book(moodle_rest)
+        self.page_content = mod_page(moodle_rest)
+        self.label_content = mod_label(moodle_rest)
         self.file_content = mod_resource(moodle_rest)
 
 
@@ -39,13 +43,15 @@ class moodle_content_helpers:
         course_resources = self.moodle_rest.get_course_resources(course_id)
         return course, course_modules, course_sections, course_blocks, course_resources
 
-    def save_course_data(self, course, course_sections, course_resources, course_blocks, course_books, course_files):
+    def save_course_data(self, course, course_sections, course_resources, course_blocks, course_books, course_files, course_pages, course_labels):
         course_idnumber = course['idnumber']
         self.save_item_raw(course, course_idnumber, f"{course_idnumber}_course")
         self.save_item_raw(course_sections, course_idnumber, f"{course_idnumber}_sections")
         self.save_item_raw(course_resources, course_idnumber, f"{course_idnumber}_modules")
         self.save_item_raw(course_books, course_idnumber, f"{course_idnumber}_books")
         self.save_item_raw(course_blocks, course_idnumber, f"{course_idnumber}_blocks")
+        self.save_item_raw(course_pages, course_idnumber, f"{course_idnumber}_pages")
+        self.save_item_raw(course_labels, course_idnumber, f"{course_idnumber}_labels")
         self.save_item_raw(course_files, course_idnumber, f"{course_idnumber}_files")
 
     def save_item_raw(self, item_to_save, directory, filename):
@@ -64,10 +70,21 @@ class moodle_content_helpers:
                 writer.writerows(item_to_save)
         return
     
-    def get_course_content(self, course, course_modules, course_sections, course_blocks, course_resources): 
+    def append_course_modules(self, course_modules, directory):
+        full_directory_path = os.path.join(self.data_store_path, directory)
+        os.makedirs(full_directory_path, exist_ok=True)  # Ensure the directory exists
+        course_modules.to_csv(os.path.join(full_directory_path, "course_modules.csv"), mode='a', index=False)
+
+    
+    def get_course_content(self, course, course_modules, course_sections, course_blocks, course_resources):
+        # Temp debug code
+        self.append_course_modules(course_modules, "debug")
+
         course_block_content = self.block_content.get_block_content(course_blocks, course, course_resources)
-        course_book_content = self.book_content.get_book_content(course_modules, course, course_resources)
+        course_book_content = self.book_content.get_book_content(course_modules, course)
+        course_page_content = self.page_content.get_page_content(course_modules, course)
+        course_label_content = self.label_content.get_label_content(course_modules, course)
         course_file_content = self.file_content.get_resource_content(course_modules, course)
-        return course_block_content, course_book_content, course_sections, course_file_content, course_resources
+        return course_block_content, course_book_content, course_page_content, course_label_content, course_sections, course_file_content, course_resources
 
         # Lots more todo here
