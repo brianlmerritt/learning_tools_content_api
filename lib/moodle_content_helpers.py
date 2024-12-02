@@ -43,7 +43,7 @@ class moodle_content_helpers:
         course_resources = self.moodle_rest.get_course_resources(course_id)
         return course, course_modules, course_sections, course_blocks, course_resources
 
-    def save_course_data(self, course, course_sections, course_resources, course_blocks, course_books, course_files, course_pages, course_labels):
+    def save_course_data(self, course, course_sections, course_resources, course_blocks, course_books, course_files, course_folders, course_pages, course_labels):
         course_idnumber = course['idnumber']
         self.save_item_raw(course, course_idnumber, f"{course_idnumber}_course")
         self.save_item_raw(course_sections, course_idnumber, f"{course_idnumber}_sections")
@@ -53,7 +53,7 @@ class moodle_content_helpers:
         self.save_item_raw(course_pages, course_idnumber, f"{course_idnumber}_pages")
         self.save_item_raw(course_labels, course_idnumber, f"{course_idnumber}_labels")
         self.save_item_raw(course_files, course_idnumber, f"{course_idnumber}_files")
-
+        self.save_item_raw(course_folders, course_idnumber, f"{course_idnumber}_folders")
     def save_item_raw(self, item_to_save, directory, filename):
         if isinstance(item_to_save, pd.DataFrame) :
             os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
@@ -84,7 +84,7 @@ class moodle_content_helpers:
         course_book_content = self.book_content.get_book_content(course_modules, course)
         course_page_content = self.page_content.get_page_content(course_modules, course)
         course_label_content = self.label_content.get_label_content(course_modules, course)
-        course_file_content = self.file_content.get_resource_content(course_modules, course)
-        return course_block_content, course_book_content, course_page_content, course_label_content, course_sections, course_file_content, course_resources
+        course_file_content, course_folder_content = self.file_content.get_resource_content(course_modules, course)
+        return course_block_content, course_book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources
 
         # Lots more todo here

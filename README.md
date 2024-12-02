@@ -1,6 +1,8 @@
 # Learning Tools Content API
 
-This program is designed to read content from a Moodle system, sanitize it, and save it as text or publish it to a LLM vector store like faiss.
+This program is designed to read content from a Moodle system, sanitize it, and save it as text or publish it to a LLM vector store.
+
+It works by searching for courses, and then extracting the content of the course either into a .csv file or (todo) a vector store or search engine.
 
 ## Table of Contents
 
@@ -30,14 +32,21 @@ Once the configuration is set up, you can run the program using the following co
 
 Files are stored in `course_data`
 
+## Content extraction is working for Moodle:
+
+- Pages
+- Books
+- Files (WIP)
+- Folders (WIP)
+- Labels
+- Blocks
+
 ## TODO ##
 
-1. Finish extract data from Moodle for blocks, books, pages, files, labels, forums (to start)
-1. Save course data files to import in CourseID_#_IDNUMBER directory
+1. Finish extract data from Moodle for forums, lessons, assignments, quizzes (to start)
 1. Extract study map function if applicable (at RVC it is strand map)
 1. Build text import routines to save sanitised data (plain text & .md format?) with meta data from course, section, module, and study map if applicable
 1. Set up contributing possibility
-1. Add other content types (lesson, quiz?)
 1. Add LTI & other content via Selenium?
 1. Add lecture capture
 
