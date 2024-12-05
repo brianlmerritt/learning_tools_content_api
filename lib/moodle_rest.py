@@ -182,6 +182,16 @@ class moodle_rest:
             except:
                 return None
 
+    def get_matching_courses_from_list(self, field='id', list_of_values=None):
+        courses = pd.DataFrame()  # Initialize an empty DataFrame to store matching courses
+        for value in list_of_values:
+            try:
+                matched_courses = self.moodle_courses.loc[self.moodle_courses[field] == value]
+                courses = pd.concat([courses, matched_courses], ignore_index=True)
+            except Exception as e:
+                self.event_logger.log_data("get_matching_courses_from_list_error", f"Error matching course for value {value}: {str(e)}")
+        return courses if not courses.empty else None
+
     # Note calling this with new course_id will update the current course
     def get_course_modules(self, course_id):
         if course_id == self.current_course:
