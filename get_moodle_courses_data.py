@@ -1,16 +1,17 @@
 import pandas as pd
 import numpy as np
 import os
-import dotenv
+from dotenv import load_dotenv
 import json
 
-dotenv.load_dotenv()
+load_dotenv()
 
 from lib.moodle_rest import moodle_rest
 from lib.moodle_content_helpers import moodle_content_helpers
 
 idnumber_search = os.getenv('IDNUMBER_SEARCH')
-idnumber_list = json.loads(os.getenv('IDNUMBER_LIST'))
+idnumber_list = json.loads(os.getenv("IDNUMBER_LIST", "[]"))  
+idnumber_list = idnumber_list if isinstance(idnumber_list, list) else []
 
 moodle_rest_connection = moodle_rest()
 moodle_content_helper = moodle_content_helpers(moodle_rest_connection)
