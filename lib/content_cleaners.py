@@ -17,10 +17,10 @@ class content_cleaners:
         import re
         from html import unescape
         # Handle unicode escapes first
-        try:
-            text = text.encode('utf-8').decode('unicode-escape')
-        except:
-            pass
+        #try:
+        #    text = text.encode('utf-8').decode('unicode-escape')
+        #except:
+        #    print(f"Error decoding unicode escape in {text}")
         # Remove escaped quotes at start/end if present
         text = text.strip('"\'')
         # Unescape HTML entities
@@ -209,3 +209,35 @@ class content_cleaners:
             'cleanest_html': cleanest_html,
             'clean_text': cleaned_text
         }
+    
+    # Take module data (one row from the activity content) and if it has HTML content, remove carriage returns and line feeds
+    def ai_check_module_data(self, module_data: dict) -> dict:
+        """
+        Iterate over each key/value pair in module_data.
+        If a value is a string and contains embedded HTML (detected by the presence of '<' and '>'),
+        remove all carriage returns and line feeds by replacing them with a single space and normalize whitespace.
+        """
+        cleaned_data = {}
+        for key, value in module_data.items():
+            if isinstance(value, str) and ('<' in value and '>' in value):
+                # Replace any sequence of carriage returns or line feeds with a single space
+                cleaned_value = re.sub(r'[\r\n]+', ' ', value)
+                # Normalize all extra whitespace (tabs, multiple spaces, etc.) into a single space
+                cleaned_value = re.sub(r'\s+', ' ', cleaned_value)
+                cleaned_data[key] = cleaned_value.strip()
+            else:
+                cleaned_data[key] = value
+        return cleaned_data
+    
+    def check_module_data(self, module_data: dict) -> dict:
+        """Remove any newlines and crap from any field """
+        cleaned_data = {}
+        for key, value in module_data.items():
+                if isinstance (value, str):
+                    cleaned_value = self.clean_text(value)
+                    cleaned_value = re.sub(r'[\r\n]+', ' ', cleaned_value)
+                    cleaned_value = re.sub(r'\s+', ' ', cleaned_value)
+                    cleaned_data[key] = cleaned_value.strip()
+                else:
+                    cleaned_data[key] = value
+        return cleaned_data

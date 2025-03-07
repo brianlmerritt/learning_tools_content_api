@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from lib.event_logger import EventLogger
 from typing import Optional, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
+import time
 
 class MoodleRESTError(Exception):
     """Custom exception for Moodle REST API errors"""
@@ -17,7 +18,7 @@ class DatabaseConnectionError(MoodleRESTError):
 
 class moodle_rest:
     def __init__(self):
-        load_dotenv()
+        load_dotenv(override=True)
 
         self.moodle_api_token = os.getenv('MOODLE_TOKEN')
         self.moodle_url = os.getenv('MOODLE_URL')
@@ -52,10 +53,14 @@ class moodle_rest:
 
     def get_moodle_web_token(self):
         response = httpx.get(
+            # f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=rvc_external_webservices",
             f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=moodle_mobile_app",
             timeout=300  # Set timeout to 5 minutes (300 seconds)
         )
         if response.status_code == 200:
+            if response.json().get('error'):
+                print(f"Failed to get token: {response.json().get('error')} - most probably the cause is moodle_mobile_app is not enabled.")
+                print(f"Note carrying on, but items such as page and book content will be missing")
             return response.json().get('token')
         else:
             raise Exception(f"Failed to get token: {response.text}")
@@ -70,7 +75,13 @@ class moodle_rest:
     # Get the html content of a Moodle file (index.html) object
     def get_moodle_web_file_content(self, moodle_file_url):
         try:
-            token_param = f'token={self.moodle_web_token}'
+            if self.moodle_web_token is None:
+                # self.event_logger.log_data("get moodle web file content error", "No token found")
+                # return "Content not available - is moodle_mobile_app enabled?"
+                token_param = f'token={self.moodle_api_token}'
+            else:
+                token_param = f'token={self.moodle_web_token}'
+
             separator = '&' if '?' in moodle_file_url else '?'
             response = httpx.get(
                 f'{moodle_file_url}{separator}{token_param}',
@@ -291,7 +302,7 @@ class moodle_rest:
                 self.moodle_url + self.rest_endpoint,
                 params=parameters,
                 headers=self.headers,
-                timeout=600
+                timeout=60
             )
             
             # Log non-200 responses
