@@ -8,3 +8,4 @@ __pycache__
 course_data/
 !course_data/.gitkeep
 * copy*py
+.DS_Store

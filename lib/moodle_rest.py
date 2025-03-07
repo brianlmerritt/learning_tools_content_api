@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 from lib.event_logger import EventLogger
 from typing import Optional, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
+import time
+import requests
+from bs4 import BeautifulSoup
 
 class MoodleRESTError(Exception):
     """Custom exception for Moodle REST API errors"""
@@ -17,7 +20,7 @@ class DatabaseConnectionError(MoodleRESTError):
 
 class moodle_rest:
     def __init__(self):
-        load_dotenv()
+        load_dotenv(override=True)
 
         self.moodle_api_token = os.getenv('MOODLE_TOKEN')
         self.moodle_url = os.getenv('MOODLE_URL')
@@ -29,6 +32,7 @@ class moodle_rest:
         self.timeout = 60
         self.max_retries = 3
         self.retry_delay = 5  # seconds
+        self.moodle_web_session = None
 
         # Initialize connection
         self.initialize_connection()
@@ -37,7 +41,7 @@ class moodle_rest:
     def initialize_connection(self):
         """Initialize connection and required data with retry logic"""
         try:
-            self.moodle_web_token = self.get_moodle_web_token()
+            self.moodle_mobile_token = self.get_moodle_mobile_token()
             self.moodle_courses = None
             self.current_course = None
             self.current_course_blocks = None
@@ -50,16 +54,50 @@ class moodle_rest:
             self.event_logger.log_data("initialization_error", f"Failed to initialize Moodle connection: {str(e)}")
             raise
 
-    def get_moodle_web_token(self):
+    # Returns a tuple of web token and api token but only one will be set, with the priority being mobile app token
+    def get_moodle_mobile_token(self):
         response = httpx.get(
+            # f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=rvc_external_webservices",
             f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=moodle_mobile_app",
-            timeout=300  # Set timeout to 5 minutes (300 seconds)
+            timeout=60
         )
         if response.status_code == 200:
+            if response.json().get('error'):
+                print(f"Failed to get token: {response.json().get('error')} - most probably the cause is moodle_mobile_app is not enabled.")
+                print(f"Now attempting to get a web login, which requires MOODLE_USER and MOODLE_PASSWORD to be set in .env")
+                self.get_moodle_session()
+                return None
             return response.json().get('token')
         else:
             raise Exception(f"Failed to get token: {response.text}")
+    
+    # Note we only request moodle_session if mobile token failed, probably due to mobile app not enabled
+    def get_moodle_session(self):
+        session = requests.Session()
+        response = session.get(
+            f"{self.moodle_url}/login/index.php",
+            timeout=60)
+        if response.status_code != 200:
+            raise Exception(f"Failed to get user session: {response.text}")
+        soup = BeautifulSoup(response.text, 'html.parser')
+        try:
+            logintoken = soup.find('input', {'name': 'logintoken'})['value']
+            self.moodle_web_session = session
+        except Exception as e:
+            raise Exception(f"Failed to get logintoken, check .env username and password : {str(e)}")
         
+        login_data = {
+            'username': self.moodle_user,
+            'password': self.moodle_password,
+            'logintoken': logintoken
+        }
+        login_response = session.post(f"{self.moodle_url}/login/index.php", data=login_data)
+        if "Invalid login" in login_response.text:
+            raise Exception(f"Failed to login: {login_response.text}")
+        else:
+            print("Successfully logged in so now using web requests rather than mobile requests")
+        return
+
         
     def get_courses(self):
         if self.moodle_courses is None:
@@ -70,14 +108,29 @@ class moodle_rest:
     # Get the html content of a Moodle file (index.html) object
     def get_moodle_web_file_content(self, moodle_file_url):
         try:
-            token_param = f'token={self.moodle_web_token}'
-            separator = '&' if '?' in moodle_file_url else '?'
-            response = httpx.get(
-                f'{moodle_file_url}{separator}{token_param}',
-                timeout=300  # 5 minutes in seconds
-            )
-            response.raise_for_status()
+
+            if self.moodle_mobile_token is None:
+                moodle_file_url = moodle_file_url.replace('/webservice', '')  # Remove /webservice from URL
+                if self.moodle_web_session is None:
+                    raise Exception("No session available for web requests")
+                response = self.moodle_web_session.get(
+                    moodle_file_url,
+                    timeout=60  # 1 minutes in seconds
+                )
+                if "login" in response.url:
+                    raise Exception("Login required to access file - alter this code to deal with that failure!")
+
+            else:
+                token_param = f'token={self.moodle_mobile_token}'
+
+                separator = '&' if '?' in moodle_file_url else '?'
+                response = httpx.get(
+                    f'{moodle_file_url}{separator}{token_param}',
+                    timeout=300  # 5 minutes in seconds
+                )
             
+            response.raise_for_status()
+            # we should have a reponse by now
             try:
                 # Try to parse as JSON
                 json_content = response.json()
@@ -291,7 +344,7 @@ class moodle_rest:
                 self.moodle_url + self.rest_endpoint,
                 params=parameters,
                 headers=self.headers,
-                timeout=600
+                timeout=60
             )
             
             # Log non-200 responses

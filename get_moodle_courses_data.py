@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 import json
 
-load_dotenv()
+load_dotenv(override=True)
 
 from lib.moodle_rest import moodle_rest
 from lib.moodle_content_helpers import moodle_content_helpers

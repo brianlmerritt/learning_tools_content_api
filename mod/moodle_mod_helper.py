@@ -30,6 +30,7 @@ class ModuleHelper:
         self.has_subcomponents = has_subcomponents
         self.data_store_path = 'course_data/'
 
+    # Call this method whenever a mod activity has subcomponents
     def process_mod_items(self, contents: List[dict], module_data: dict, course: dict) -> List[dict]:
         """Generic processor for module items"""
         items = []
@@ -47,12 +48,14 @@ class ModuleHelper:
         items.sort(key=lambda x: x.get('sortorder', 0))
         return self._process_item_usage(items, module_data)
 
+    # Get and process the content of a module (course activity)
     def get_mod_content(self, course_modules: pd.DataFrame, course: dict) -> pd.DataFrame:
         """Generic getter for module content"""
         results = []
 
         for _, module_contents in course_modules.iterrows():
             module_data = self._create_base_module_data(module_contents, course)
+            
             contents = module_contents.get(self.content_field, [])
             
             # Handle table of contents if present (e.g., for books)
@@ -88,7 +91,7 @@ class ModuleHelper:
 
     def _create_base_module_data(self, module_contents: dict, course: dict) -> dict:
         """Create base module data dictionary"""
-        return {
+        module_data = {
             'course_id': course.get('id'),
             'course_name': course.get('fullname'),
             f'{self.modtype}_id': module_contents.get('instance'),
@@ -100,6 +103,8 @@ class ModuleHelper:
             f'{self.modtype}_url': module_contents.get('url'),
             f'{self.modtype}_section_id': module_contents.get('section_id')
         }
+        module_data = self.content_cleaner.check_module_data(module_data) # Remove any newlines from any field if it has html content
+        return module_data
 
     def _process_item(self, content: dict, module_data: dict, course: dict) -> dict:
         """Process individual module item"""

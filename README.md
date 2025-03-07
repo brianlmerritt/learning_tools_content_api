@@ -15,8 +15,8 @@ It works by searching for courses, and then extracting the content of the course
 
 To install the Moodle Content API, follow these steps:
 
-1. Clone the repository: `git clone https://github.com/brianlmerritt/moodle-content-api.git`
-1. Install the required dependencies: `pip install -r requirements.txt`
+1. Clone the repository: `git clone https://github.com/brianlmerritt/learning_tools-content-api.git`
+1. Install the required dependencies: `pip install -r requirements.txt` # Note you are better to install a virtual env
 
 You also need to setup Web Services (REST) and generate a user token
 
