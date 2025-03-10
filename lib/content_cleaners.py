@@ -9,6 +9,11 @@ from urllib.parse import urlparse, parse_qs
 from lib.event_logger import EventLogger
 
 
+URL_PATTERN = re.compile(
+    r'^(https?://[^\s]+)$',  # Simple URL pattern matching http/https URLs
+    re.IGNORECASE
+)
+
 class content_cleaners:
     def __init__(self) -> None:
         self.event_logger = EventLogger()
@@ -164,7 +169,20 @@ class content_cleaners:
                 'cleanest_html': '', 
                 'clean_text': ''
             }
-            
+        
+        html_content = html_content.strip()
+
+        # Detect if the entire content is just a URL
+        if URL_PATTERN.match(html_content):
+            # Early return for plain URL
+            return {
+                'content': html_content,
+                'clean_html': html_content,
+                'cleanest_html': html_content,
+                'clean_text': html_content
+            }
+
+
         html_content = html_content.encode('ascii', 'ignore').decode('ascii')
         
         # Extract and save embedded images
