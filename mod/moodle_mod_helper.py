@@ -30,24 +30,6 @@ class ModuleHelper:
         self.has_subcomponents = has_subcomponents
         self.data_store_path = 'course_data/'
 
-    # Call this method whenever a mod activity has subcomponents
-    def process_mod_items(self, contents: List[dict], module_data: dict, course: dict) -> List[dict]:
-        """Generic processor for module items"""
-        items = []
-        
-        for content in contents:
-            if content['type'] != 'file':
-                self.event_logger.log_data(f'Unknown {self.modtype} {self.component_name} type', 
-                    f"Content type: {content['type']} fileurl: {content['fileurl']} content: {content}")
-                continue
-            
-            item = self._process_item(content, module_data, course)
-            if item:
-                items.append(item)
-        
-        items.sort(key=lambda x: x.get('sortorder', 0))
-        return self._process_item_usage(items, module_data)
-
     # Get and process the content of a module (course activity)
     def get_mod_content(self, course_modules: pd.DataFrame, course: dict) -> pd.DataFrame:
         """Generic getter for module content"""
@@ -88,6 +70,92 @@ class ModuleHelper:
                 results.append(module_data)
 
         return pd.DataFrame(results)
+
+
+    # Call this method whenever a mod activity has subcomponents
+    def process_mod_items(self, contents: List[dict], module_data: dict, course: dict) -> List[dict]:
+        """Generic processor for module items"""
+        items = []
+        
+        for content in contents:
+            if content['type'] != 'file':
+                self.event_logger.log_data(f'Unknown {self.modtype} {self.component_name} type', 
+                    f"Content type: {content['type']} fileurl: {content['fileurl']} content: {content}")
+                continue
+            
+            item = self._process_item(content, module_data, course)
+            if item:
+                items.append(item)
+        
+        items.sort(key=lambda x: x.get('sortorder', 0))
+        return self._process_item_usage(items, module_data)
+
+
+
+    def process_forum_discussions(self, forum_discussions: Dict[str, List[Dict]], forum_data: Dict, course: Dict) -> List[Dict]:
+        # List of fields to rename
+        discussion_fields = [
+            'id', 'name', 'groupid', 'timemodified', 'usermodified', 'timestart', 'timeend', 
+            'discussion', 'parent', 'userid', 'created', 'modified', 'mailed', 'subject', 'message', 
+            'messageformat', 'messagetrust', 'attachment', 'totalscore', 'mailnow', 'userfullname', 
+            'usermodifiedfullname', 'userpictureurl', 'usermodifiedpictureurl', 'numreplies', 
+            'numunread', 'pinned', 'locked', 'starred', 'canreply', 'canlock', 'canfavourite'
+        ]
+        
+        # Prepend 'forum_discussion_' to field names
+        prefixed_fields = {field: f"forum_discussion_{field}" for field in discussion_fields}
+        
+        # Extract discussions list (default to empty list if key is missing)
+        discussions = forum_discussions.get('discussions', [])
+
+        # If no discussions exist, return a single dict with all prefixed fields set to None
+        if not discussions:
+            return [{new_key: None for new_key in prefixed_fields.values()}]
+
+        # Transform discussion dicts
+        transformed_discussions = []
+        for discussion in discussions:
+            new_discussion = {
+                prefixed_fields[key]: discussion[key] for key in discussion if key in prefixed_fields
+            }
+            # Merge forum_data into the discussion
+            new_discussion.update(forum_data)
+            transformed_discussions.append(new_discussion)
+
+        return transformed_discussions
+
+    
+    def process_forum_discussion_posts(self, forum_posts: List[dict], discussion_data: dict, course: dict) -> List[dict]:
+        # List of fields to rename
+        post_fields = [
+            'id', 'subject', 'replysubject', 'message', 'messageformat', 'author', 
+            'discussionid', 'hasparent', 'parentid', 'timecreated', 'timemodified', 
+            'unread', 'isdeleted', 'isprivatereply', 'haswordcount', 'wordcount', 
+            'charcount', 'capabilities', 'urls', 'attachments', 'messageinlinefiles', 'tags', 'html'
+        ]
+        
+        # Prepend 'forum_post_' to field names
+        prefixed_fields = {field: f"forum_post_{field}" for field in post_fields}
+        
+        # Extract posts list (default to empty list if key is missing)
+        posts = forum_posts.get('posts', [])
+
+        # If no posts exist, return a single dict with all prefixed fields set to None
+        if not posts:
+            return [{new_key: None for new_key in prefixed_fields.values()}]
+
+        # Transform post dicts
+        transformed_posts = []
+        for post in posts:
+            new_post = {
+                prefixed_fields[key]: post[key] for key in post if key in prefixed_fields
+            }
+            # Merge forum_discussion_data into the post
+            new_post.update(discussion_data)
+            transformed_posts.append(new_post)
+
+        return transformed_posts
+
 
     def _create_base_module_data(self, module_contents: dict, course: dict) -> dict:
         """Create base module data dictionary"""
