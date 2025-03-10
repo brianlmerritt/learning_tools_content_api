@@ -40,10 +40,12 @@ Files are stored in `course_data`
 - Folders (WIP)
 - Labels
 - Blocks
+- URLs
+- Forums
 
 ## TODO ##
 
-1. Finish extract data from Moodle for forums, lessons, assignments, quizzes (to start)
+1. Finish extract data from Moodle for lessons, assignments, quizzes (to start)
 1. Extract study map function if applicable (at RVC it is strand map)
 1. Build text import routines to save sanitised data (plain text & .md format?) with meta data from course, section, module, and study map if applicable
 1. Set up contributing possibility

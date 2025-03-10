@@ -150,6 +150,14 @@ class moodle_rest:
             return None
 
 
+    def get_forum_discussions(self, forum_id):
+        response = self.get_moodle_rest_request('mod_forum_get_forum_discussions', forumid=forum_id)
+        return response
+
+    def get_forum_discussion_posts(self, discussion_id):
+        response = self.get_moodle_rest_request('mod_forum_get_discussion_posts', discussionid=discussion_id)
+        return response
+
     def get_mod_books_in_course(self, course_id):
         response = self.get_moodle_rest_request('mod_book_get_books_by_courses', courseids=[course_id])
         return response
@@ -321,8 +329,10 @@ class moodle_rest:
         if isinstance(response_data, dict):
             if "exception" in response_data:
                 error_msg = response_data.get('message', '')
-                if 'odbc_exec' in error_msg or 'database' in error_msg.lower():
+                if 'odbc_exec' in error_msg :
                     raise DatabaseConnectionError(f"Database connection error: {error_msg}")
+                elif "Can't find data record in database" in error_msg:
+                    return None
                 raise MoodleRESTError(f"Moodle API Error: {error_msg}")
 
 
@@ -344,7 +354,7 @@ class moodle_rest:
                 self.moodle_url + self.rest_endpoint,
                 params=parameters,
                 headers=self.headers,
-                timeout=60
+                timeout=120
             )
             
             # Log non-200 responses
