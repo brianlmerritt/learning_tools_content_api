@@ -1,4 +1,5 @@
 from .moodle_mod_helper import ModuleHelper
+import pandas as pd
 
 
 class mod_forum:
@@ -24,11 +25,13 @@ class mod_forum:
 
                     if forum_discussion_posts is None or "exception" in forum_discussion_posts:
                         forum_discussion_posts = {'posts': []}
-                    merged_forum_discussion_posts = self.helper.process_forum_discussion_posts(forum_discussion_posts, merged_forum_discussion, course)
-                    forum_all_content.append(merged_forum_discussion_posts)
+                        merged_forum_discussion_posts = self.helper.process_forum_discussion_posts(forum_discussion_posts, merged_forum_discussion, course)
+                        forum_all_content.append(merged_forum_discussion_posts)
 
             except Exception as e:
                 print(f"An get forum posts or discussions error occurred: {e}")
-        return forum_all_content
+
+        forum_all_content_df = pd.DataFrame(forum_all_content)
+        return forum_all_content_df
 
 

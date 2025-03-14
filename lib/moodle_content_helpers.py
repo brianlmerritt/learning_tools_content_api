@@ -60,7 +60,7 @@ class moodle_content_helpers:
         self.save_item_raw(course_urls, course_idnumber, f"{course_idnumber}_urls")
         self.save_item_raw(course_forums, course_idnumber, f"{course_idnumber}_forums")
         return
-    
+
     def save_item_raw(self, item_to_save, directory, filename):
         if isinstance(item_to_save, pd.DataFrame) :
             os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
@@ -81,6 +81,24 @@ class moodle_content_helpers:
         full_directory_path = os.path.join(self.data_store_path, directory)
         os.makedirs(full_directory_path, exist_ok=True)  # Ensure the directory exists
         course_modules.to_csv(os.path.join(full_directory_path, "course_modules.csv"), mode='a', index=False)
+        return
+    
+    def extract_file_details(self, content, all_files):
+        file_details = [] # Todo make this work, add mod type perhaps
+        return file_details
+
+    def get_all_files(self, block_content, book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources, course_urls, course_forums):
+        all_files = course_file_content
+        print(all_files.head()) # Todo add label, book, page content to files
+        print(course_label_content.head())
+        print(course_page_content.head())
+        print(book_content.head())
+        print(block_content.head())
+        print(course_sections.head())
+        print(course_resources.head())
+        print(course_urls.head())
+        print(course_forums.head())
+        return all_files
 
     
     def get_course_content(self, course, course_modules, course_sections, course_blocks, course_resources):

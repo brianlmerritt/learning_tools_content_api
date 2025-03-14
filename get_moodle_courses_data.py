@@ -32,6 +32,7 @@ for _, current_course in current_courses.iterrows():
     course, course_modules, course_sections, course_blocks, course_resources = moodle_content_helper.set_course(current_course['id'])
     print(f"\n\nCurrent Course: {course['fullname']}")
     block_content, book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources, course_urls, course_forums = moodle_content_helper.get_course_content(course, course_modules, course_sections, course_blocks, course_resources)
+    # todo make work all_files = moodle_content_helper.get_all_files(block_content, book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources, course_urls, course_forums)
     moodle_content_helper.save_course_data(course, course_sections, course_resources, block_content, book_content, course_file_content, course_folder_content, course_page_content, course_label_content, course_urls, course_forums)
     print(f"Saved data for {course['fullname']}")
 
