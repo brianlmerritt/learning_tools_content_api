@@ -32,12 +32,16 @@ Once the configuration is set up, you can run the program using the following co
 
 Files are stored in `course_data`
 
+A helper utility can extract all urls from the activity content.
+
+`python3 extract_urls.py`
+
 ## Content extraction is working for Moodle:
 
 - Pages
 - Books
-- Files (WIP)
-- Folders (WIP)
+- Files (Course level files)
+- Folders (To be tested)
 - Labels
 - Blocks
 - URLs
@@ -45,8 +49,9 @@ Files are stored in `course_data`
 
 ## TODO ##
 
-1. Finish extract data from Moodle for lessons, assignments, quizzes (to start)
+1. Extract data from Moodle for quizzes (to start)
 1. Extract study map function if applicable (at RVC it is strand map)
+1. Output content to RAG api for indexing, vector database, retrieval
 1. Build text import routines to save sanitised data (plain text & .md format?) with meta data from course, section, module, and study map if applicable
 1. Set up contributing possibility
 1. Add LTI & other content via Selenium?
