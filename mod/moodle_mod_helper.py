@@ -201,6 +201,9 @@ class ModuleHelper:
             f'{self.component_name}_sortorder': content.get('sortorder', 0),
             f'{self.component_name}_tags': content.get('tags', [])
         }
+        if self.component_name == 'chapter':
+            item[f'{self.component_name}_url'] = f"{module_data.get('book_url')}&chapter={item.get('chapter_id')}"
+        
         
         # Add module data
         item.update(module_data)
