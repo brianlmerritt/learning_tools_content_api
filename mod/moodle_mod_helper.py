@@ -197,7 +197,7 @@ class ModuleHelper:
             f'{self.component_name}_files': [],
             f'{self.component_name}_title': content.get('content', ''),
             f'{self.component_name}_filepath': content.get('filepath'),
-            f'{self.component_name}_filesize': content.get('filesize'),          
+            f'{self.component_name}_filesize': content.get('filesize'),
             f'{self.component_name}_fileurl': item_url,
             f'{self.component_name}_time_modified': content.get('timemodified'),
             f'{self.component_name}_sortorder': content.get('sortorder', 0),
@@ -207,13 +207,14 @@ class ModuleHelper:
             
             item[f'{self.component_name}_url'] = f"{module_data.get('book_url')}&chapter={item.get('chapter_id')}"
 
-            # Moodle url to text editor where the file manager can be opened and references to unused files deleted.
-            # Mock up url above to test if col & val added to CSV https://learn.rvc.ac.uk/mod/book/edit.php?cmid=58392&id=100115
+            # Adding Moodle url to text editor where - the file manager can be opened and references to unused files deleted.
+            #
+            # Mdl txt editor URL example https://example.com/mod/book/edit.php?cmid=58392&id=100115
             item[f'{self.component_name}_editor_url'] = f"https://learn.rvc.ac.uk/mod/book/edit.php?cmid={int(module_data.get(f'{self.modtype}_cmid'))}&id={item.get('chapter_id')}"
-            # print(item[f'{self.component_name}_editor_url'])
+
 
             # Human readable filesize - consider refactoring to use (currently unused) fn below called _convert_size
-            # print("item['chapter_filesize'] = ", item['chapter_filesize'], "type = ", type(item['chapter_filesize']))
+            # 
             size_bytes = int(item['chapter_filesize'])
 
             if size_bytes == 0: 
@@ -228,6 +229,7 @@ class ModuleHelper:
             item[f'{self.component_name}_filesize_readable'] = f"{human_size}"
 
             # Human readable time modified
+            #
             ts = int(item['chapter_time_modified'])
             x = datetime.fromtimestamp(ts, tz=timezone.utc)
             item[f'{self.component_name}_time_modified_readable'] = x.strftime('%Y-%m-%d %H:%M')
