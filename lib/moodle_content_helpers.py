@@ -111,7 +111,9 @@ class moodle_content_helpers:
         course_label_content = self.label_content.get_label_content(course_modules, course)
         course_file_content, course_folder_content = self.file_content.get_resource_content(course_modules, course)
         course_url_content = self.url_content.get_url_content(course_modules, course)
-        course_forum_content = self.forum_content.get_forum_content(course_modules, course)
+        # I don't need forum content for now and it is generating an error so I am not calling the functions for now
+        # course_forum_content = self.forum_content.get_forum_content(course_modules, course)
+        course_forum_content = None
         return course_block_content, course_book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources, course_url_content, course_forum_content
 
         # Lots more todo here

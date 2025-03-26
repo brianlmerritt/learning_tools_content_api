@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import os
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from lib.content_cleaners import content_cleaners
 from lib.content_utilities import content_utilities
 from lib.event_logger import EventLogger
@@ -192,14 +192,14 @@ class ModuleHelper:
         # Use component name in field names
         item = {
             f'{self.component_name}_id': item_id,
-            f'{self.component_name}_filename': filename,
+            f'{self.component_name}_filename': self._decode_urlencoded_str(filename),
             f'{self.component_name}_type': item_type,
             f'{self.component_name}_files': [],
             f'{self.component_name}_title': content.get('content', ''),
             f'{self.component_name}_filepath': content.get('filepath'),
-            f'{self.component_name}_filesize': content.get('filesize'),
+            f'{self.component_name}_filesize': self._convert_size(content.get('filesize')),
             f'{self.component_name}_fileurl': item_url,
-            f'{self.component_name}_time_modified': content.get('timemodified'),
+            f'{self.component_name}_time_modified': self._time_modified(content.get('timemodified')),
             f'{self.component_name}_sortorder': content.get('sortorder', 0),
             f'{self.component_name}_tags': content.get('tags', [])
         }
@@ -215,24 +215,25 @@ class ModuleHelper:
 
             # Human readable filesize - consider refactoring to use (currently unused) fn below called _convert_size
             # 
-            size_bytes = int(item['chapter_filesize'])
+            # size_bytes = int(item['chapter_filesize'])
 
-            if size_bytes == 0: 
-                human_size = "0B" 
-            else: 
-                size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB") 
-                i = int(math.floor(math.log(size_bytes, 1024)))
-                power = math.pow(1024, i) 
-                size = round(size_bytes / power, 2) 
-                human_size = "{} {}".format(size, size_name[i])
+            # if size_bytes == 0: 
+            #     human_size = "0B" 
+            # else: 
+            #     size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB") 
+            #     i = int(math.floor(math.log(size_bytes, 1024)))
+            #     power = math.pow(1024, i) 
+            #     size = round(size_bytes / power, 2) 
+            #     human_size = "{} {}".format(size, size_name[i])
 
-            item[f'{self.component_name}_filesize_readable'] = f"{human_size}"
+            # item[f'{self.component_name}_filesize_readable'] = f"{human_size}"
+
 
             # Human readable time modified
-            #
-            ts = int(item['chapter_time_modified'])
-            x = datetime.fromtimestamp(ts, tz=timezone.utc)
-            item[f'{self.component_name}_time_modified_readable'] = x.strftime('%Y-%m-%d %H:%M')
+            # now modified already so commenting out
+            # ts = int(item['chapter_time_modified'])
+            # x = datetime.fromtimestamp(ts, tz=timezone.utc)
+            # item[f'{self.component_name}_time_modified_readable'] = x.strftime('%Y-%m-%d %H:%M')
 
         
         
@@ -300,15 +301,33 @@ class ModuleHelper:
         )
     
 
-    def _convert_size(size_bytes, ignore2ndposarg): 
+    def _convert_size(self, size_bytes: int) -> str:  
         """
         original fn taken from https://python-forum.io/thread-6709.html
-        TODO refactor to use a convert size fn here rather than including code within the  _process_item fn
         """
         if size_bytes == 0: 
-            return "0B" 
-        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB") 
-        i = int(math.floor(math.log(size_bytes, 1024)))
-        power = math.pow(1024, i) 
-        size = round(size_bytes / power, 2) 
-        return "{} {}".format(size, size_name[i])
+            return "0" 
+
+        power = math.pow(1024, 2) 
+        size = round(size_bytes / power)  # ndigits (2nd pos arg) omited to round to nearest whole number
+        return "{}".format(size)
+    
+        # if size_bytes == 0: 
+        #     return "0B" 
+        # size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB") 
+        # i = int(math.floor(math.log(size_bytes, 1024)))
+        # power = math.pow(1024, i) 
+        # size = round(size_bytes / power, 2) 
+        # return "{} {}".format(size, size_name[i])
+
+
+    def _time_modified(self, ts: int) -> str:
+        """ Human readable time modified """
+        x = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return x.strftime('%Y-%m-%d %H:%M')
+    
+
+    def _decode_urlencoded_str(self, filename: str) -> str:
+        """Decode URL-encoded string"""
+        return unquote(filename)
+    
