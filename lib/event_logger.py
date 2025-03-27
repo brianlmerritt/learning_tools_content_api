@@ -12,7 +12,8 @@ class EventLogger:
         Args:
             output_dir (str): Directory path where log_events.csv will be stored
         """
-        self.output_dir = 'course_data/'
+        # self.output_dir = 'course_data/'
+        self.output_dir = os.getenv('DATA_STORE_PATH') # Note currently output_dir is the same as data_store_path
         self.log_file = os.path.join(self.output_dir, "log_events.csv")
         self.events = deque(maxlen=100)  # Only keep last 100 events in memory
         

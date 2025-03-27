@@ -17,7 +17,8 @@ from mod.forum import mod_forum
 
 class moodle_content_helpers:
     def __init__(self, moodle_rest) -> None:
-        self.data_store_path = 'course_data/'
+        # self.data_store_path = 'course_data/'
+        self.data_store_path = os.getenv('DATA_STORE_PATH')
         self.moodle_rest = moodle_rest
         self.content_cleaner = content_cleaners()
         self.block_content = block_content()

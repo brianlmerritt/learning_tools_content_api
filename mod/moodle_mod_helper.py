@@ -30,7 +30,8 @@ class ModuleHelper:
         self.component_name = component_name
         self.content_field = content_field
         self.has_subcomponents = has_subcomponents
-        self.data_store_path = 'course_data/'
+        # self.data_store_path = 'course_data/'
+        self.data_store_path = os.getenv('DATA_STORE_PATH')
 
     # Get and process the content of a module (course activity)
     def get_mod_content(self, course_modules: pd.DataFrame, course: dict) -> pd.DataFrame:
@@ -71,7 +72,26 @@ class ModuleHelper:
                 module_data.update(processed_content)
                 results.append(module_data)
 
-        return pd.DataFrame(results)
+        results_df = pd.DataFrame(results)
+
+        # Check if the DataFrame is empty
+        if results_df.empty:
+            self.event_logger.log_data("Empty results", "No data to process in get_mod_content.")
+            return results_df  # Return the empty DataFrame
+        
+        # Ensure the column exists before sorting
+        filesize_column = f"{self.component_name}_filesize"
+        if filesize_column in results_df.columns:
+            # Convert the column to integers (handle non-numeric values gracefully)
+            results_df[filesize_column] = pd.to_numeric(results_df[filesize_column], errors='coerce').fillna(0).astype(int)
+            
+            # Sort the DataFrame by the filesize column
+            sorted_results_df = results_df.sort_values(by=filesize_column, ascending=False)
+        else:
+            self.event_logger.log_data("Missing column", f"Column '{filesize_column}' not found in DataFrame.")
+            return results_df  # Return the unsorted DataFrame
+        
+        return sorted_results_df
 
 
     # Call this method whenever a mod activity has subcomponents
@@ -191,18 +211,32 @@ class ModuleHelper:
         
         # Use component name in field names
         item = {
-            f'{self.component_name}_id': item_id,
+            f'{self.component_name}_title': content.get('content', ''),
             f'{self.component_name}_filename': self._decode_urlencoded_str(filename),
+            f'{self.component_name}_filesize': self._convert_size(content.get('filesize')),  # sort on filesize:  df.sort_values(by=['6'], ascending=False)
+            f'{self.component_name}_time_modified': self._time_modified(content.get('timemodified')),
             f'{self.component_name}_type': item_type,
             f'{self.component_name}_files': [],
-            f'{self.component_name}_title': content.get('content', ''),
+            f'{self.component_name}_id': item_id,
             f'{self.component_name}_filepath': content.get('filepath'),
-            f'{self.component_name}_filesize': self._convert_size(content.get('filesize')),
             f'{self.component_name}_fileurl': item_url,
-            f'{self.component_name}_time_modified': self._time_modified(content.get('timemodified')),
             f'{self.component_name}_sortorder': content.get('sortorder', 0),
             f'{self.component_name}_tags': content.get('tags', [])
         }
+            # original order of list above
+            #
+            # f'{self.component_name}_id': item_id,
+            # f'{self.component_name}_filename': self._decode_urlencoded_str(filename),
+            # f'{self.component_name}_type': item_type,
+            # f'{self.component_name}_files': [],
+            # f'{self.component_name}_title': content.get('content', ''),
+            # f'{self.component_name}_filepath': content.get('filepath'),
+            # f'{self.component_name}_filesize': self._convert_size(content.get('filesize')),  # sort on filesize:  df.sort_values(by=['6'], ascending=False)
+            # f'{self.component_name}_fileurl': item_url,
+            # f'{self.component_name}_time_modified': self._time_modified(content.get('timemodified')),
+            # f'{self.component_name}_sortorder': content.get('sortorder', 0),
+            # f'{self.component_name}_tags': content.get('tags', [])
+        
         if self.component_name == 'chapter':
             
             item[f'{self.component_name}_url'] = f"{module_data.get('book_url')}&chapter={item.get('chapter_id')}"
@@ -330,4 +364,3 @@ class ModuleHelper:
     def _decode_urlencoded_str(self, filename: str) -> str:
         """Decode URL-encoded string"""
         return unquote(filename)
-    
