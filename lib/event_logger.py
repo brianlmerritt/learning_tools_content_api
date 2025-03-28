@@ -13,21 +13,36 @@ class EventLogger:
             output_dir (str): Directory path where log_events.csv will be stored
         """
         # self.output_dir = 'course_data/'
-        self.output_dir = os.getenv('DATA_STORE_PATH') # Note currently output_dir is the same as data_store_path
+        self.output_dir = os.getenv('LOG_STORE_PATH') # Note currently output_dir is the same as data_store_path
         self.log_file = os.path.join(self.output_dir, "log_events.csv")
         self.events = deque(maxlen=100)  # Only keep last 100 events in memory
         
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Clear existing log file if it exists
-        open(self.log_file, 'w').close()
+        # Append to the log file if it exists, otherwise create a new one
+        # and write the header but not clear the existing file.
+        #
+        # This is to prevent overwriting the file if it already exists.
+        # If the script is running as a cron job, it may be run multiple times
+        # and we don't want to lose the previous logs.
+
+        # Write CSV header only if the file does not exist
+        if not os.path.exists(self.log_file):
+            with open(self.log_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['timestamp', 'event_title', 'event_details'])
+
+        # Previous code:
+        # # Clear existing log file if it exists
+        # open(self.log_file, 'w').close()
         
-        # Write CSV header
-        with open(self.log_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['timestamp', 'event_title', 'event_details'])
-        
+        # # Write CSV header
+        # with open(self.log_file, 'w', newline='') as f:
+        #     writer = csv.writer(f)
+        #     writer.writerow(['timestamp', 'event_title', 'event_details'])
+
+
         # Register the flush_events method to run at program termination
         atexit.register(self.flush_events)
     
