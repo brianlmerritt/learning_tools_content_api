@@ -93,7 +93,7 @@ class moodle_rest:
         }
         login_response = session.post(f"{self.moodle_url}/login/index.php", data=login_data)
         if "Invalid login" in login_response.text:
-            raise Exception(f"Failed to login: {login_response.text}")
+            raise Exception(f"Failed to login: {login_response.text[:200]}")
         else:
             print("Successfully logged in so now using web requests rather than mobile requests")
         return
@@ -326,14 +326,21 @@ class moodle_rest:
 
     def check_database_error(self, response_data: Dict[str, Any]) -> None:
         """Check for database-related errors in the response"""
-        if isinstance(response_data, dict):
-            if "exception" in response_data:
-                error_msg = response_data.get('message', '')
-                if 'odbc_exec' in error_msg :
-                    raise DatabaseConnectionError(f"Database connection error: {error_msg}")
-                elif "Can't find data record in database" in error_msg:
-                    return None
-                raise MoodleRESTError(f"Moodle API Error: {error_msg}")
+        if isinstance(response_data, dict) and "exception" in response_data:
+            error_msg = response_data.get('message', '')
+
+            # <<< add this block to swallow that specific ODBC argument error >>>
+            if 'Argument #1 ($odbc)' in error_msg:
+                self.event_logger.log_data("db_odbc_argument1_error", error_msg)
+                return True
+
+            if 'odbc_exec' in error_msg:
+                raise DatabaseConnectionError(f"Database connection error: {error_msg}")
+            elif "Can't find data record in database" in error_msg:
+                return True
+
+            raise MoodleRESTError(f"Moodle API Error: {error_msg}")
+        return False
 
 
     # Call Moodle API - note does not throw exception on error
@@ -368,7 +375,9 @@ class moodle_rest:
             response_data = response.json()
             
             # Check for database errors
-            self.check_database_error(response_data)
+            had_error = self.check_database_error(response_data)
+            if had_error:
+                return {} # Nothing to return
             
             return response_data
 
@@ -393,4 +402,3 @@ class moodle_rest:
                 f"Unexpected error with parameters: {parameters}, error: {str(e)}"
             )
             raise MoodleRESTError(f"Unexpected Error: {str(e)}")
-       
