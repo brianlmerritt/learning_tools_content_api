@@ -7,6 +7,7 @@ import getpass
 import re
 import os
 from collections import deque
+import ast
 
 # --- Configuration ---
 # Consider using environment variables or a config file for sensitive data
@@ -28,10 +29,22 @@ moodle_domain = "" # Will be set after getting base URL
 
 def get_moodle_credentials():
     """Gets Moodle credentials from the user."""
-    moodle_base_url = input("Enter the base URL of your Moodle instance (e.g., https://moodle.example.com): ").strip().rstrip('/')
-    username = input("Enter your Moodle username: ").strip()
-    password = getpass.getpass("Enter your Moodle password: ")
-    course_id = input("Enter the Moodle Course ID to start crawling: ").strip()
+    moodle_base_url = os.getenv("MOODLE_URL", "https://learn.rvc.ac.uk")
+    username = os.getenv("MOODLE_USER", None)
+    password = os.getenv("MOODLE_PASSWORD", None)
+    if username is None or password is None:
+        raise ValueError("Please set MOODLE_USER and MOODLE_PASSWORD environment variables.")
+    # Parse the IDNUMBER_LIST environment variable as a Python list and get the first value
+    idnumber_list = os.getenv("IDNUMBER_LIST", "[]")
+    try:
+        # Safely parse the string as a list
+        parsed_list = ast.literal_eval(idnumber_list)
+        if isinstance(parsed_list, list) and parsed_list:
+            course_id = str(parsed_list[0])
+        else:
+            raise ValueError("IDNUMBER_LIST is not a non-empty list.")
+    except Exception as e:
+        raise ValueError(f"Failed to parse IDNUMBER_LIST: {e}")
     return moodle_base_url, username, password, course_id
 
 def login_to_moodle(session, base_url, login_path, username, password):
