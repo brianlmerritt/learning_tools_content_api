@@ -1,9 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs # Added parse_qs explicitly
 import csv
 import time
-import getpass # Keep for full script context
+import getpass
 import re
 import os
 from collections import deque
@@ -12,7 +12,7 @@ import ast
 # --- Configuration ---
 # MOODLE_BASE_URL = os.environ.get("MOODLE_URL", "https://your.moodle.university.edu")
 # USERNAME = os.environ.get("MOODLE_USER", "your_username")
-# COURSE_ID = os.environ.get("MOODLE_COURSE_ID", "12345")
+# COURSE_ID = os.environ.get("MOODLE_COURSE_ID", "12345") # String course ID
 
 # --- Constants ---
 LOGIN_PATH = "/login/index.php"
@@ -27,16 +27,17 @@ NON_RECURSIVE_LINK_TYPES = {
     "Calendar Link",
     "General Internal Link",
     "Gradebook Link",
-    "User Profile Link"
+    "User Profile Link",
+    "Activity (glossary)"  # MODIFICATION: Do not recurse glossaries
 }
 
 # --- Global Variables ---
 visited_urls = set()
-csv_written_urls = set() # MODIFICATION: Replaces printed_as_found_urls, controls CSV writing and initial "Found" message.
+csv_written_urls = set()
 moodle_domain = ""
 
 def get_moodle_credentials():
-    """Gets Moodle credentials from the user."""
+    """Gets Moodle credentials from the user. Returns course_id as a string."""
     moodle_base_url = os.getenv("MOODLE_URL", "https://learn.rvc.ac.uk")
     username = os.getenv("MOODLE_USER", None)
     password = os.getenv("MOODLE_PASSWORD", None)
@@ -46,42 +47,32 @@ def get_moodle_credentials():
     try:
         parsed_list = ast.literal_eval(idnumber_list)
         if isinstance(parsed_list, list) and parsed_list:
-            course_id = str(parsed_list[0])
+            course_id = str(parsed_list[0]) # Ensure course_id is a string
         else:
-            raise ValueError("IDNUMBER_LIST is not a non-empty list.")
+            raise ValueError("IDNUMBER_LIST is not a non-empty list or is malformed.")
     except Exception as e:
         raise ValueError(f"Failed to parse IDNUMBER_LIST: {e}")
     return moodle_base_url, username, password, course_id
 
 def login_to_moodle(session, base_url, login_path, username, password):
-    """Logs into Moodle using the provided session and credentials."""
     global moodle_domain
     parsed_base_url = urlparse(base_url)
     moodle_domain = parsed_base_url.netloc
-
     login_url = urljoin(base_url, login_path)
     print(f"Attempting to access login page: {login_url}")
-
     try:
         response = session.get(login_url, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-
         logintoken_tag = soup.find('input', {'name': 'logintoken'})
         logintoken = logintoken_tag['value'] if logintoken_tag and logintoken_tag.get('value') else None
-        if logintoken:
-            print("Found logintoken.")
-        else:
-            print("Warning: Could not find 'logintoken' field. Login might fail.")
-
+        if logintoken: print("Found logintoken.")
+        else: print("Warning: Could not find 'logintoken' field. Login might fail.")
         payload = {'username': username, 'password': password}
-        if logintoken:
-            payload['logintoken'] = logintoken
-
+        if logintoken: payload['logintoken'] = logintoken
         print(f"Attempting to POST login credentials to {login_url}")
         response = session.post(login_url, data=payload, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-
         if response.url == login_url or "login/index.php" in response.url:
             soup_check = BeautifulSoup(response.text, 'html.parser')
             if soup_check.find(class_='loginerrors') or soup_check.find(id='loginerrormessage'):
@@ -97,8 +88,7 @@ def login_to_moodle(session, base_url, login_path, username, password):
         return False
     except requests.exceptions.RequestException as e:
         print(f"Error during login process: {e}")
-        if 'response' in locals() and response:
-            print("Response status:", response.status_code)
+        if 'response' in locals() and response: print("Response status:", response.status_code)
         return False
     except Exception as e:
         print(f"An unexpected error occurred during login: {e}")
@@ -128,7 +118,8 @@ def classify_link(url):
         parts = path.split('/')
         try:
             mod_index = parts.index('mod')
-            return f"Activity ({parts[mod_index + 1]})"
+            activity_type = parts[mod_index + 1]
+            return f"Activity ({activity_type})"
         except (IndexError, ValueError): return "Activity (Unknown Type)"
     elif '/course/view.php' in path: return "Course Link"
     elif '/user/profile.php' in path: return "User Profile Link"
@@ -136,20 +127,36 @@ def classify_link(url):
     elif '/calendar/view.php' in path: return "Calendar Link"
     else: return "General Internal Link"
 
-def crawl_page(session, base_url, start_url, writer):
-    """Crawls Moodle pages recursively starting from start_url."""
-    global csv_written_urls # Ensure we're using the global set
+# --- MODIFICATION: Helper function to check breadcrumbs ---
+def is_page_on_target_course_from_soup(soup, target_course_id):
+    """Checks if the breadcrumbs on the page indicate it belongs to the target course."""
+    breadcrumb_ul = soup.find('ul', class_='breadcrumb')
+    if not breadcrumb_ul:
+        return False # No breadcrumbs, cannot confirm context this way
+
+    breadcrumb_links = breadcrumb_ul.find_all('a', href=True)
+    for bc_link_tag in breadcrumb_links:
+        href = bc_link_tag['href']
+        parsed_href = urlparse(href)
+        if COURSE_VIEW_PATH in parsed_href.path: # Check for /course/view.php
+            query_params = parse_qs(parsed_href.query)
+            # query_params['id'] is a list, e.g., ['2673']
+            if 'id' in query_params and query_params['id'][0] == target_course_id:
+                return True # Found target course ID in breadcrumb link
+    return False # Target course ID not found in any breadcrumb course links
+# --- END MODIFICATION ---
+
+def crawl_page(session, base_url, start_url, writer, target_course_id): # MODIFICATION: Added target_course_id
+    """Crawls Moodle pages, respecting course context via breadcrumbs for activities."""
+    global csv_written_urls, visited_urls # Global sets
 
     queue = deque([(start_url, "Initial Entry")])
 
     while queue:
         current_url, parent_url = queue.popleft()
         current_url_normalized = current_url.strip().split('#')[0]
-        if not current_url_normalized:
-            continue
-
-        if current_url_normalized in visited_urls:
-            continue
+        if not current_url_normalized: continue
+        if current_url_normalized in visited_urls: continue
 
         print(f"Crawling: {current_url_normalized} (from: {parent_url})")
         visited_urls.add(current_url_normalized)
@@ -163,75 +170,96 @@ def crawl_page(session, base_url, start_url, writer):
             time.sleep(DELAY_SECONDS)
             response = session.get(current_url_normalized, timeout=REQUEST_TIMEOUT, headers={'User-Agent': USER_AGENT})
             response.raise_for_status()
-
             content_type = response.headers.get('content-type', '').lower()
+
             if 'text/html' not in content_type:
                 print(f"Skipping non-HTML content at {current_url_normalized} (Type: {content_type})")
-                # MODIFICATION: Check if this non-HTML link should be added to CSV (once)
                 if current_url_normalized not in csv_written_urls:
                     writer.writerow([parent_url, current_url_normalized, "N/A (Non-HTML)", "Non-HTML Resource", "N/A"])
                     csv_written_urls.add(current_url_normalized)
                 continue
 
             soup = BeautifulSoup(response.text, 'html.parser')
-            links = soup.find_all('a', href=True)
 
+            # --- MODIFICATION: Determine if current page is within the target course context ---
+            is_on_target_course_page_flag = False
+            # Check if current page is the main view page of the target course
+            if COURSE_VIEW_PATH in parsed_current.path:
+                page_id_param = parse_qs(parsed_current.query).get('id', [''])[0]
+                if page_id_param == target_course_id:
+                    is_on_target_course_page_flag = True
+            
+            if not is_on_target_course_page_flag: # If not the main course page, check breadcrumbs
+                is_on_target_course_page_flag = is_page_on_target_course_from_soup(soup, target_course_id)
+            
+            if is_on_target_course_page_flag:
+                 print(f"  Context: Current page '{current_url_normalized}' is part of target course '{target_course_id}'.")
+            else:
+                 print(f"  Context: Current page '{current_url_normalized}' not confirmed part of target course '{target_course_id}'. Activity links may not be recursed.")
+            # --- END MODIFICATION ---
+
+            links = soup.find_all('a', href=True)
             for link_tag in links:
                 href = link_tag['href'].strip()
-                if not href or href.startswith('#') or href.startswith('javascript:'):
-                    continue
+                if not href or href.startswith('#') or href.startswith('javascript:'): continue
 
                 absolute_url = urljoin(current_url_normalized, href).split('#')[0]
                 link_text = link_tag.get_text(strip=True)
-
                 parsed_absolute = urlparse(absolute_url)
+
                 if parsed_absolute.scheme not in ['http', 'https'] or parsed_absolute.netloc != moodle_domain:
-                    # MODIFICATION: Write external links to CSV only once
                     if absolute_url not in csv_written_urls:
                         writer.writerow([current_url_normalized, absolute_url, link_text, "External Link", "N/A"])
                         csv_written_urls.add(absolute_url)
                     continue
 
                 if 'logout' in absolute_url.lower():
-                    # MODIFICATION: Write logout links to CSV only once
                     if absolute_url not in csv_written_urls:
                         writer.writerow([current_url_normalized, absolute_url, link_text, "Logout Link", "N/A"])
                         csv_written_urls.add(absolute_url)
-                    visited_urls.add(absolute_url) # Mark as "handled" to prevent queuing
+                    visited_urls.add(absolute_url)
                     continue
 
                 link_type = classify_link(absolute_url)
                 context = get_link_context(link_tag)
 
-                # --- MODIFICATION: Write to CSV and print "Found" message only for new URLs ---
                 if absolute_url not in csv_written_urls:
                     writer.writerow([current_url_normalized, absolute_url, link_text, link_type, context])
                     print(f"  Found internal link (added to CSV): {absolute_url} | Type: {link_type} | Context: {context}")
                     csv_written_urls.add(absolute_url)
-                # --- END MODIFICATION ---
 
-                # Logic to decide whether to queue or mark as visited (if non-recursive and new for processing)
                 if absolute_url in visited_urls:
-                    # Already visited (either crawled or decisioned not to crawl further), so skip.
-                    pass
+                    pass # Already crawled or decisioned.
                 else:
-                    # This is a new URL for crawling consideration (not in visited_urls).
-                    if link_type not in NON_RECURSIVE_LINK_TYPES:
-                        queue.append((absolute_url, current_url_normalized))
+                    should_queue = False
+                    reason_to_skip = None
+
+                    if link_type in NON_RECURSIVE_LINK_TYPES: # Includes "Activity (glossary)"
+                        reason_to_skip = f"link type '{link_type}' is in NON_RECURSIVE_LINK_TYPES"
+                    elif link_type.startswith("Activity ("): # Other activities
+                        if not is_on_target_course_page_flag:
+                            reason_to_skip = (f"activity on a page whose context is not confirmed "
+                                              f"for target course '{target_course_id}' (via breadcrumbs/URL)")
+                        else:
+                            should_queue = True # Activity, on target course page, not a blocked type like glossary.
                     else:
-                        # Non-recursive type, and not yet in visited_urls.
-                        # This "Skipping recursion" message is printed only once for this URL
-                        # because we add it to visited_urls immediately after.
-                        print(f"  Skipping recursion for non-recursive type '{link_type}': {absolute_url}")
-                        visited_urls.add(absolute_url) # Mark as "handled" for recursion purposes
+                        # Default for types not explicitly non-recursive and not activities handled above:
+                        should_queue = True 
+
+                    if should_queue:
+                        queue.append((absolute_url, current_url_normalized))
+                    elif reason_to_skip:
+                        print(f"  Skipping recursion ({reason_to_skip}): {absolute_url}")
+                        visited_urls.add(absolute_url)
 
         except requests.exceptions.Timeout:
-            print(f"Error: Request timed out while crawling {current_url_normalized}")
-            if current_url_normalized not in csv_written_urls: # Log error entry if URL itself is new to CSV
+            print(f"Error: Request timed out for {current_url_normalized}")
+            if current_url_normalized not in csv_written_urls:
                 writer.writerow([parent_url, current_url_normalized, "N/A (Timeout)", "Error", "N/A"])
                 csv_written_urls.add(current_url_normalized)
+        # ... (other exception handling as before, with csv_written_urls check)
         except requests.exceptions.HTTPError as e:
-            print(f"Error: HTTP error {e.response.status_code} while crawling {current_url_normalized}")
+            print(f"Error: HTTP error {e.response.status_code} for {current_url_normalized}")
             if current_url_normalized not in csv_written_urls:
                 writer.writerow([parent_url, current_url_normalized, f"N/A (HTTP {e.response.status_code})", "Error", "N/A"])
                 csv_written_urls.add(current_url_normalized)
@@ -246,10 +274,9 @@ def crawl_page(session, base_url, start_url, writer):
                 writer.writerow([parent_url, current_url_normalized, "N/A (Processing Error)", "Error", "N/A"])
                 csv_written_urls.add(current_url_normalized)
 
-
 if __name__ == "__main__":
     try:
-        moodle_base_url, username, password, course_id = get_moodle_credentials()
+        moodle_base_url, username, password, course_id = get_moodle_credentials() # course_id is string
     except ValueError as e:
         print(f"Configuration error: {e}")
         exit(1)
@@ -263,20 +290,19 @@ if __name__ == "__main__":
         print("Exiting due to login failure.")
         exit(1)
 
-    print(f"\nStarting crawl from course page: {start_url}")
+    print(f"\nStarting crawl from course page: {start_url} (Target Course ID: {course_id})")
     print(f"Output will be saved to: {OUTPUT_CSV_FILE}")
     print(f"Each unique link URL will be written to the CSV only once.")
-    print(f"Links with types {NON_RECURSIVE_LINK_TYPES} will not be crawled recursively.")
-
+    print(f"Activity links will only be recursed if found on a page confirmed to be part of course '{course_id}'.")
+    print(f"Links with types {NON_RECURSIVE_LINK_TYPES} (incl. glossaries) will not be crawled recursively.")
 
     try:
         with open(OUTPUT_CSV_FILE, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['Parent URL', 'Link URL', 'Link Text', 'Link Type', 'Location on Page'])
-            # Reset global sets for multiple runs in the same Python session (if any)
             visited_urls.clear()
-            csv_written_urls.clear() # MODIFICATION: Clear the new set as well
-            crawl_page(session, moodle_base_url, start_url, writer)
+            csv_written_urls.clear()
+            crawl_page(session, moodle_base_url, start_url, writer, course_id) # Pass course_id
 
         print(f"\nCrawling finished.")
         print(f"Processed {len(visited_urls)} unique pages (either crawled or decisioned not to crawl).")
