@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs # Added parse_qs explicitly
 import csv
 import time
 import getpass
@@ -29,7 +29,7 @@ NON_RECURSIVE_LINK_TYPES = {
 # --- Global Variables ---
 visited_urls = set()
 csv_written_urls = set()
-moodle_domain = "" # Will be set after getting base URL
+moodle_domain = ""
 
 def get_moodle_credentials():
     """Gets Moodle credentials from the user. Returns course_id as a string."""
@@ -89,7 +89,6 @@ def login_to_moodle(session, base_url, login_path, username, password):
         print(f"An unexpected error occurred during login: {e}")
         return False
 
-# MODIFICATION: Renamed original get_link_context
 def get_html_based_link_context(link_tag):
     """
     Tries to determine where on the page the link was found by inspecting HTML parents.
@@ -103,8 +102,8 @@ def get_html_based_link_context(link_tag):
                     return "Course Content Area (Activity/Resource)"
                 else:
                     return "Course Content Area (General)"
-            if parent.find(class_=re.compile(r'(?<!login)box|generalbox|description')):
-                return "Activity/Resource Description"
+            if parent.find(class_=re.compile(r'(?<!login)box|generalbox|description')): # Added common content box selectors
+                return "Activity/Resource Content Box" # Made more specific
             return "Course Content Area (Unknown Section)"
         if parent.name == 'div' and 'block' in parent.get('class', []):
             block_header = parent.find(['h2', 'h3', 'h4', 'h5', 'h6'], class_='card-title')
@@ -122,7 +121,7 @@ def classify_link(url):
         parts = path.split('/')
         try: mod_index = parts.index('mod'); activity_type = parts[mod_index + 1]; return f"Activity ({activity_type})"
         except (IndexError, ValueError): return "Activity (Unknown Type)"
-    elif COURSE_VIEW_PATH in path: return "Course Link" # More specific check
+    elif COURSE_VIEW_PATH in path: return "Course Link"
     elif '/user/profile.php' in path: return "User Profile Link"
     elif '/grade/report' in path: return "Gradebook Link"
     elif '/calendar/view.php' in path: return "Calendar Link"
@@ -174,10 +173,9 @@ def crawl_page(session, base_url, start_url, writer, target_course_id):
 
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # --- Determine characteristics of the current page ---
             current_page_type_str = classify_link(current_url_normalized)
             is_current_page_target_course_home_flag = False
-            if current_page_type_str == "Course Link": # Checks if it's a /course/view.php page
+            if current_page_type_str == "Course Link":
                 page_id_param = parse_qs(parsed_current_url.query).get('id', [''])[0]
                 if page_id_param == target_course_id:
                     is_current_page_target_course_home_flag = True
@@ -185,12 +183,10 @@ def crawl_page(session, base_url, start_url, writer, target_course_id):
             is_current_page_in_target_course_context_flag = is_current_page_target_course_home_flag or \
                                                             is_page_on_target_course_from_soup(soup, target_course_id)
             
-            # Context message for the page being crawled
             if is_current_page_in_target_course_context_flag:
                  print(f"  Page Context: Current page '{current_url_normalized}' (Type: {current_page_type_str}) is part of target course '{target_course_id}'.")
             else:
                  print(f"  Page Context: Current page '{current_url_normalized}' (Type: {current_page_type_str}) not confirmed part of target course '{target_course_id}'. Activity links from here may not be recursed.")
-            # ---
 
             links = soup.find_all('a', href=True)
             for link_tag in links:
@@ -200,12 +196,10 @@ def crawl_page(session, base_url, start_url, writer, target_course_id):
                 absolute_url = urljoin(current_url_normalized, href).split('#')[0]
                 link_text = link_tag.get_text(strip=True)
                 
-                # Skip self-links immediately after full URL construction
-                if absolute_url == current_url_normalized:
-                    continue
+                if absolute_url == current_url_normalized: continue # Skip self-links
 
-                parsed_absolute = urlparse(absolute_url)
-                if parsed_absolute.scheme not in ['http', 'https'] or parsed_absolute.netloc != moodle_domain:
+                parsed_absolute_url = urlparse(absolute_url) # Renamed for clarity
+                if parsed_absolute_url.scheme not in ['http', 'https'] or parsed_absolute_url.netloc != moodle_domain:
                     if absolute_url not in csv_written_urls:
                         writer.writerow([current_url_normalized, absolute_url, link_text, "External Link", "N/A"])
                         csv_written_urls.add(absolute_url)
@@ -226,7 +220,12 @@ def crawl_page(session, base_url, start_url, writer, target_course_id):
                     if is_current_page_target_course_home_flag:
                         determined_context = "Course Page (Activity List)"
                     elif current_page_type_str.startswith("Activity ("):
-                        determined_context = "Activity Page (In-Activity Link)"
+                        # This is an activity link found on another activity page.
+                        # Apply the new rule based on 'view.php' in the link's URL path.
+                        if 'view.php' not in parsed_absolute_url.path.lower(): # Check only the path
+                            determined_context = "Activity Page (Activity Management Link)"
+                        else:
+                            determined_context = "Activity Page (Content Link)"
                 
                 if determined_context is None: # Fallback to HTML-based context
                     determined_context = get_html_based_link_context(link_tag)
@@ -245,12 +244,12 @@ def crawl_page(session, base_url, start_url, writer, target_course_id):
                     if link_type_str in NON_RECURSIVE_LINK_TYPES:
                         reason_to_skip = f"link type '{link_type_str}' is in NON_RECURSIVE_LINK_TYPES"
                     elif link_type_str.startswith("Activity ("):
-                        if not is_current_page_in_target_course_context_flag: # Use the broader context flag here
+                        if not is_current_page_in_target_course_context_flag:
                             reason_to_skip = (f"activity on a page whose context is not confirmed "
                                               f"for target course '{target_course_id}'")
-                        else:
+                        else: # Activity, on target course, and not a specifically non-recursive activity type (like glossary)
                             should_queue = True
-                    else:
+                    else: # Other link types not explicitly non-recursive
                         should_queue = True
 
                     if should_queue:
@@ -297,8 +296,11 @@ if __name__ == "__main__":
         exit(1)
 
     print(f"\nStarting crawl from course page: {start_url} (Target Course ID: {course_id_str})")
-    # ... (other startup messages)
-    print(f"Context for activity links will be 'Course Page' if on course home, 'Activity Page' if within another activity, or HTML-based otherwise.")
+    print(f"Output will be saved to: {OUTPUT_CSV_FILE}")
+    print(f"Each unique link URL will be written to the CSV only once.")
+    print(f"Activity links will only be recursed if found on a page confirmed to be part of course '{course_id_str}'.")
+    print(f"Links with types {NON_RECURSIVE_LINK_TYPES} (incl. glossaries) will not be crawled recursively.")
+    print(f"Context for activity links from activity pages distinguished by 'view.php' (Content vs Management).")
 
 
     try:
