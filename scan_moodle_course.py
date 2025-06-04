@@ -286,6 +286,9 @@ if __name__ == "__main__":
         print(f"Configuration error: {e}")
         exit(1)
 
+    raise RuntimeError("DO NOT RUN THIS CODE: This script may delete content. Do not run until it has been modified to ensure it does not delete any content.")
+    # NOTE: This script should NOT be run until it has been carefully reviewed and modified to guarantee it does not delete any content.
+
     start_url = urljoin(moodle_base_url, f"{COURSE_VIEW_PATH}?id={course_id_str}")
 
     session = requests.Session()
