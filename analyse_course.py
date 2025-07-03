@@ -48,7 +48,6 @@ try:
         section_name = row['name']
         sections_by_num[section_num] = section_name
         sections_by_id[section_id] = section_name
-        print(f"Section mapping: num={section_num}, id={section_id} -> {section_name}")
 except FileNotFoundError:
     print(f"Error: {SECTIONS_CSV} not found.")
     sys.exit(1)
@@ -66,13 +65,13 @@ try:
                 'section_num': str(row['section']),
                 'source': 'modules.csv'
             }
-            print(f"Module: {cmid} -> section {row['section']}, name: {row['name'][:50]}...")
 except FileNotFoundError:
     print(f"Error: {MODULES_CSV} not found.")
     sys.exit(1)
 
 # 3. Add labels from labels.csv as they are separate modules
 label_content = {}
+label_clean_text = {}
 try:
     with open(LABELS_CSV, encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -105,9 +104,9 @@ try:
             
             # Store label content for analysis
             content = row.get('content', '')
+            clean_text = row.get('clean_text', '')
             label_content[cmid] = content
-            
-            print(f"Label: {cmid} -> section {section_num} ({section_id}), name: {row['label_name'][:50]}...")
+            label_clean_text[cmid] = clean_text
             
 except FileNotFoundError:
     print(f"Warning: {LABELS_CSV} not found")
@@ -124,9 +123,8 @@ def map_type_cmid(type_csv, type_name, cmid_col):
             if cmid:
                 module_type_map[str(cmid)] = type_name
                 count += 1
-        print(f"Mapped {count} {type_name} modules")
     except FileNotFoundError:
-        print(f"Warning: {type_csv} not found")
+        pass
 
 # Map all module types including labels
 map_type_cmid(LABELS_CSV, 'label', 'label_cmid')
@@ -146,10 +144,10 @@ def classify_label_content(content):
     return 'plain_text'
 
 # 5. Write output CSV
-print(f"\nGenerating analysis for {len(modules)} total modules...")
+print(f"Generating analysis for {len(modules)} total modules...")
 with open(OUTPUT_CSV, 'w', encoding='utf-8', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(['section_num', 'section_name', 'module_id', 'module_name', 'module_type', 'label_content_type', 'source'])
+    writer.writerow(['section_num', 'section_name', 'module_id', 'module_name', 'module_type', 'label_content_type', 'source', 'content'])
     
     for cmid, mod in modules.items():
         section_num = mod['section_num']
@@ -160,11 +158,13 @@ with open(OUTPUT_CSV, 'w', encoding='utf-8', newline='') as f:
         source = mod['source']
         
         label_content_type = ''
+        content = ''
         if module_type == 'label':
-            content = label_content.get(cmid, '')
-            label_content_type = classify_label_content(content)
+            raw_content = label_content.get(cmid, '')
+            label_content_type = classify_label_content(raw_content)
+            content = label_clean_text.get(cmid, '')
         
-        writer.writerow([section_num, section_name, module_id, module_name, module_type, label_content_type, source])
+        writer.writerow([section_num, section_name, module_id, module_name, module_type, label_content_type, source, content])
 
 print(f'Analysis complete. Output written to {OUTPUT_CSV}')
 
