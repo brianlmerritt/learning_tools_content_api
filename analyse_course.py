@@ -38,37 +38,83 @@ def read_csv_dict(filepath):
         reader = csv.DictReader(f)
         return list(reader)
 
-# 1. Section number → section name mapping (using 'section' column, not 'id')
-sections = {}
+# 1. Build section mappings using both section number and section ID
+sections_by_num = {}  # section number -> name
+sections_by_id = {}   # section ID -> name
 try:
     for row in read_csv_dict(SECTIONS_CSV):
-        # Map section number to section name
-        section_num = str(row['section'])  # Convert to string for consistent mapping
-        sections[section_num] = row['name']
-        print(f"Section mapping: {section_num} -> {row['name']}")
+        section_num = str(row['section'])
+        section_id = str(row['id'])
+        section_name = row['name']
+        sections_by_num[section_num] = section_name
+        sections_by_id[section_id] = section_name
+        print(f"Section mapping: num={section_num}, id={section_id} -> {section_name}")
 except FileNotFoundError:
     print(f"Error: {SECTIONS_CSV} not found.")
     sys.exit(1)
 
-# 2. Build module info: coursemodule id → {module_id, name, section_num}
+# 2. Build regular module info from modules.csv
 modules = {}
 try:
     with open(MODULES_CSV, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            cmid = str(row['coursemodule'])  # Convert to string for consistent mapping
+            cmid = str(row['coursemodule'])
             modules[cmid] = {
                 'module_id': row['id'],
                 'name': row['name'],
-                'section_num': str(row['section']),  # Use section number, convert to string
+                'section_num': str(row['section']),
+                'source': 'modules.csv'
             }
-            print(f"Module mapping: {cmid} -> section {row['section']}, name: {row['name'][:50]}...")
+            print(f"Module: {cmid} -> section {row['section']}, name: {row['name'][:50]}...")
 except FileNotFoundError:
     print(f"Error: {MODULES_CSV} not found.")
     sys.exit(1)
 
-# 3. Build coursemodule id → module type mapping
+# 3. Add labels from labels.csv as they are separate modules
+label_content = {}
+try:
+    with open(LABELS_CSV, encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            cmid = str(row['label_cmid'])
+            section_id = str(row['label_section_id'])
+            
+            # Map section ID to section number for consistency
+            section_num = None
+            for s_num, s_id in [(n, sid) for n, sid in zip(sections_by_num.keys(), sections_by_id.keys()) if sections_by_id[sid] == sections_by_id.get(section_id, '')]:
+                section_num = s_num
+                break
+            
+            # If we can't find section number, use the section ID directly
+            if section_num is None:
+                # Find section number by matching section ID
+                for s_num, s_name in sections_by_num.items():
+                    if sections_by_id.get(section_id, '') == s_name:
+                        section_num = s_num
+                        break
+                if section_num is None:
+                    section_num = f"id_{section_id}"
+            
+            modules[cmid] = {
+                'module_id': row['label_id'],
+                'name': row['label_name'],
+                'section_num': section_num,
+                'source': 'labels.csv'
+            }
+            
+            # Store label content for analysis
+            content = row.get('content', '')
+            label_content[cmid] = content
+            
+            print(f"Label: {cmid} -> section {section_num} ({section_id}), name: {row['label_name'][:50]}...")
+            
+except FileNotFoundError:
+    print(f"Warning: {LABELS_CSV} not found")
+
+# 4. Build coursemodule id → module type mapping
 module_type_map = {}
+
 # Helper to map cmid from a type file
 def map_type_cmid(type_csv, type_name, cmid_col):
     try:
@@ -76,12 +122,13 @@ def map_type_cmid(type_csv, type_name, cmid_col):
         for row in read_csv_dict(type_csv):
             cmid = row.get(cmid_col)
             if cmid:
-                module_type_map[str(cmid)] = type_name  # Convert to string
+                module_type_map[str(cmid)] = type_name
                 count += 1
         print(f"Mapped {count} {type_name} modules")
     except FileNotFoundError:
         print(f"Warning: {type_csv} not found")
 
+# Map all module types including labels
 map_type_cmid(LABELS_CSV, 'label', 'label_cmid')
 map_type_cmid(PAGES_CSV, 'page', 'page_cmid')
 map_type_cmid(BOOKS_CSV, 'book', 'book_cmid')
@@ -89,19 +136,6 @@ map_type_cmid(FILES_CSV, 'file', 'file_cmid')
 map_type_cmid(FOLDERS_CSV, 'folder', 'folder_cmid')
 map_type_cmid(URLS_CSV, 'url', 'url_cmid')
 map_type_cmid(FORUMS_CSV, 'forum', 'forum_cmid')
-
-# 4. For labels: cmid → label content
-label_content = {}
-try:
-    count = 0
-    for row in read_csv_dict(LABELS_CSV):
-        cmid = row.get('label_cmid')
-        if cmid:
-            label_content[str(cmid)] = row.get('content', '')  # Convert to string
-            count += 1
-    print(f"Loaded content for {count} labels")
-except FileNotFoundError:
-    print(f"Warning: {LABELS_CSV} not found")
 
 def classify_label_content(content):
     if not content or content.strip() == '':
@@ -112,31 +146,34 @@ def classify_label_content(content):
     return 'plain_text'
 
 # 5. Write output CSV
-print("\nGenerating analysis...")
+print(f"\nGenerating analysis for {len(modules)} total modules...")
 with open(OUTPUT_CSV, 'w', encoding='utf-8', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(['section_num', 'section_name', 'module_id', 'module_name', 'module_type', 'label_content_type'])
+    writer.writerow(['section_num', 'section_name', 'module_id', 'module_name', 'module_type', 'label_content_type', 'source'])
     
     for cmid, mod in modules.items():
         section_num = mod['section_num']
-        section_name = sections.get(section_num, f'Unknown Section {section_num}')
+        section_name = sections_by_num.get(section_num, f'Unknown Section {section_num}')
         module_id = mod['module_id']
         module_name = mod['name']
         module_type = module_type_map.get(cmid, 'unknown')
+        source = mod['source']
         
         label_content_type = ''
         if module_type == 'label':
             content = label_content.get(cmid, '')
             label_content_type = classify_label_content(content)
         
-        writer.writerow([section_num, section_name, module_id, module_name, module_type, label_content_type])
+        writer.writerow([section_num, section_name, module_id, module_name, module_type, label_content_type, source])
 
 print(f'Analysis complete. Output written to {OUTPUT_CSV}')
 
 # Print summary statistics
 print("\n=== SUMMARY ===")
 print(f"Total modules analyzed: {len(modules)}")
-print(f"Sections found: {len(sections)}")
+print(f"  - From modules.csv: {len([m for m in modules.values() if m['source'] == 'modules.csv'])}")
+print(f"  - From labels.csv: {len([m for m in modules.values() if m['source'] == 'labels.csv'])}")
+print(f"Sections found: {len(sections_by_num)}")
 print(f"Module types found: {len(set(module_type_map.values()))}")
 
 # Count modules by type
