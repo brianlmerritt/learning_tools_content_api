@@ -8,3 +8,6 @@ class mod_book:
     def get_book_content(self, course_modules, course):
         book_modules = course_modules[(course_modules['modname'] == 'book')]
         return self.mod_helper.get_mod_content(book_modules, course)
+    
+    def delete_book_file(self, book_cmid, book_chapter_id, filename):
+        raise NotImplementedError("Deleting book files is not supported in this version of the Moodle API.")

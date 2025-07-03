@@ -13,7 +13,9 @@ idnumber_search = os.getenv('IDNUMBER_SEARCH')
 idnumber_list = json.loads(os.getenv("IDNUMBER_LIST", "[]"))  
 idnumber_list = idnumber_list if isinstance(idnumber_list, list) else []
 
-moodle_rest_connection = moodle_rest()
+use_uat = os.getenv('USE_UAT', 'False').lower() in ['true', '1', 'yes']
+
+moodle_rest_connection = moodle_rest(use_uat=use_uat)
 moodle_content_helper = moodle_content_helpers(moodle_rest_connection)
 
 courses = moodle_rest_connection.get_courses()
@@ -24,9 +26,13 @@ current_courses = pd.DataFrame()
 if idnumber_list is not None and idnumber_list != ['']:
     current_courses = pd.concat([current_courses, moodle_rest_connection.get_matching_courses_from_list('idnumber', idnumber_list)], ignore_index=True)
 
+print(f"Found {len(current_courses)} courses from the course ids in idnumber_list provided.")
+
 # Get search courses next
 if idnumber_search not in [None, '']:
     current_courses = pd.concat([current_courses, moodle_rest_connection.get_matching_courses('idnumber', idnumber_search)], ignore_index=True)
+
+print(f"We now have a total of {len(current_courses)} courses including idnumbers and course ids.")
 
 for _, current_course in current_courses.iterrows():
     course, course_modules, course_sections, course_blocks, course_resources = moodle_content_helper.set_course(current_course['id'])

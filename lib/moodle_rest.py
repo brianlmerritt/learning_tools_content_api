@@ -19,13 +19,21 @@ class DatabaseConnectionError(MoodleRESTError):
     pass
 
 class moodle_rest:
-    def __init__(self):
+    def __init__(self, use_uat=False):
         load_dotenv(override=True)
+        self.use_uat = use_uat
+        if self.use_uat:
+            self.moodle_api_token = os.getenv('UAT_MOODLE_TOKEN')
+            self.moodle_url = os.getenv('UAT_MOODLE_URL')
+            self.moodle_user = os.getenv('UAT_MOODLE_USER')
+            self.moodle_password = os.getenv('UAT_MOODLE_PASSWORD')
+        else:
+            self.moodle_api_token = os.getenv('MOODLE_TOKEN')
+            self.moodle_url = os.getenv('MOODLE_URL')
+            self.moodle_user = os.getenv('MOODLE_USER')
+            self.moodle_password = os.getenv('MOODLE_PASSWORD')
 
-        self.moodle_api_token = os.getenv('MOODLE_TOKEN')
-        self.moodle_url = os.getenv('MOODLE_URL')
-        self.moodle_user = os.getenv('MOODLE_USER')
-        self.moodle_password = os.getenv('MOODLE_PASSWORD')
+
         self.rest_endpoint = '/webservice/rest/server.php'
         self.event_logger = EventLogger()
         self.headers = {"Accept": "application/json"}
@@ -176,23 +184,6 @@ class moodle_rest:
             return course.iloc[0]
         except:
             return None
-
-    def set_course_old(self, course_id):
-        self.current_course = course_id
-        self.current_course_blocks = pd.DataFrame(self.get_moodle_rest_request('core_block_get_course_blocks', courseid=course_id)['blocks'])
-        self.current_course_content = pd.DataFrame(self.get_moodle_rest_request('core_course_get_contents', courseid=course_id))
-        self.current_course_resources = pd.DataFrame(self.get_moodle_rest_request('mod_resource_get_resources_by_courses', courseids=[course_id])['resources'])
-        # Create a new dataframe course_modules
-        course_modules = pd.DataFrame()
-        for _, course_section in self.current_course_content.iterrows():
-            modules_to_add = pd.DataFrame(course_section['modules'])
-            modules_to_add['section_id'] = course_section['id']
-            course_modules = pd.concat([course_modules, modules_to_add], ignore_index=True)
-        self.current_course_sections = self.current_course_content.drop(columns=['modules'])
-        self.current_course_modules = course_modules
-        self.current_course_blocks = self.get_block_content(course_id) # Append block_text and block_title to block content
-        return self.get_course(course_id)
-
 
     def set_course(self, course_id: int) -> Optional[Dict[str, Any]]:
         """Set current course with enhanced error handling"""
