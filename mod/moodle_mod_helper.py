@@ -3,10 +3,12 @@ import pandas as pd
 import json
 import os
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from lib.content_cleaners import content_cleaners
 from lib.content_utilities import content_utilities
 from lib.event_logger import EventLogger
+import math
+from datetime import datetime, timezone
 
 class ModuleHelper:
     """Helper class for processing Moodle module content"""
@@ -28,7 +30,8 @@ class ModuleHelper:
         self.component_name = component_name
         self.content_field = content_field
         self.has_subcomponents = has_subcomponents
-        self.data_store_path = 'course_data/'
+        # self.data_store_path = 'course_data/'
+        self.data_store_path = os.getenv('DATA_STORE_PATH')
 
     # Get and process the content of a module (course activity)
     def get_mod_content(self, course_modules: pd.DataFrame, course: dict) -> pd.DataFrame:
@@ -69,7 +72,26 @@ class ModuleHelper:
                 module_data.update(processed_content)
                 results.append(module_data)
 
-        return pd.DataFrame(results)
+        results_df = pd.DataFrame(results)
+
+        # Check if the DataFrame is empty
+        if results_df.empty:
+            self.event_logger.log_data("Empty results", "No data to process in get_mod_content.")
+            return results_df  # Return the empty DataFrame
+        
+        # Ensure the column exists before sorting
+        filesize_column = f"{self.component_name}_filesize"
+        if filesize_column in results_df.columns:
+            # Convert the column to integers (handle non-numeric values gracefully)
+            results_df[filesize_column] = pd.to_numeric(results_df[filesize_column], errors='coerce').fillna(0).astype(int)
+            
+            # Sort the DataFrame by the filesize column
+            sorted_results_df = results_df.sort_values(by=filesize_column, ascending=False)
+        else:
+            self.event_logger.log_data("Missing column", f"Column '{filesize_column}' not found in DataFrame.")
+            return results_df  # Return the unsorted DataFrame
+        
+        return sorted_results_df
 
 
     # Call this method whenever a mod activity has subcomponents
@@ -189,20 +211,64 @@ class ModuleHelper:
         
         # Use component name in field names
         item = {
-            f'{self.component_name}_id': item_id,
-            f'{self.component_name}_filename': filename,
+            f'{self.component_name}_title': content.get('content', ''),
+            f'{self.component_name}_filename': self._decode_urlencoded_str(filename),
+            f'{self.component_name}_filesize': self._convert_size(content.get('filesize')),  # sort on filesize:  df.sort_values(by=['6'], ascending=False)
+            f'{self.component_name}_time_modified': self._time_modified(content.get('timemodified')),
             f'{self.component_name}_type': item_type,
             f'{self.component_name}_files': [],
-            f'{self.component_name}_title': content.get('content', ''),
+            f'{self.component_name}_id': item_id,
             f'{self.component_name}_filepath': content.get('filepath'),
-            f'{self.component_name}_filesize': content.get('filesize'),
             f'{self.component_name}_fileurl': item_url,
-            f'{self.component_name}_time_modified': content.get('timemodified'),
             f'{self.component_name}_sortorder': content.get('sortorder', 0),
             f'{self.component_name}_tags': content.get('tags', [])
         }
+            # original order of list above
+            #
+            # f'{self.component_name}_id': item_id,
+            # f'{self.component_name}_filename': self._decode_urlencoded_str(filename),
+            # f'{self.component_name}_type': item_type,
+            # f'{self.component_name}_files': [],
+            # f'{self.component_name}_title': content.get('content', ''),
+            # f'{self.component_name}_filepath': content.get('filepath'),
+            # f'{self.component_name}_filesize': self._convert_size(content.get('filesize')),  # sort on filesize:  df.sort_values(by=['6'], ascending=False)
+            # f'{self.component_name}_fileurl': item_url,
+            # f'{self.component_name}_time_modified': self._time_modified(content.get('timemodified')),
+            # f'{self.component_name}_sortorder': content.get('sortorder', 0),
+            # f'{self.component_name}_tags': content.get('tags', [])
+        
         if self.component_name == 'chapter':
+            
             item[f'{self.component_name}_url'] = f"{module_data.get('book_url')}&chapter={item.get('chapter_id')}"
+
+            # Adding Moodle url to text editor where - the file manager can be opened and references to unused files deleted.
+            #
+            # Mdl txt editor URL example https://example.com/mod/book/edit.php?cmid=58392&id=100115
+            item[f'{self.component_name}_editor_url'] = f"https://learn.rvc.ac.uk/mod/book/edit.php?cmid={int(module_data.get(f'{self.modtype}_cmid'))}&id={item.get('chapter_id')}"
+
+
+            # Human readable filesize - consider refactoring to use (currently unused) fn below called _convert_size
+            # 
+            # size_bytes = int(item['chapter_filesize'])
+
+            # if size_bytes == 0: 
+            #     human_size = "0B" 
+            # else: 
+            #     size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB") 
+            #     i = int(math.floor(math.log(size_bytes, 1024)))
+            #     power = math.pow(1024, i) 
+            #     size = round(size_bytes / power, 2) 
+            #     human_size = "{} {}".format(size, size_name[i])
+
+            # item[f'{self.component_name}_filesize_readable'] = f"{human_size}"
+
+
+            # Human readable time modified
+            # now modified already so commenting out
+            # ts = int(item['chapter_time_modified'])
+            # x = datetime.fromtimestamp(ts, tz=timezone.utc)
+            # item[f'{self.component_name}_time_modified_readable'] = x.strftime('%Y-%m-%d %H:%M')
+
         
         
         # Add module data
@@ -267,3 +333,34 @@ class ModuleHelper:
         return self.content_cleaner.clean_encoding_artifacts(
             self.content_cleaner.clean_escaped_slashes(items_with_file_check)
         )
+    
+
+    def _convert_size(self, size_bytes: int) -> str:  
+        """
+        original fn taken from https://python-forum.io/thread-6709.html
+        """
+        if size_bytes == 0: 
+            return "0" 
+
+        power = math.pow(1024, 2) 
+        size = round(size_bytes / power)  # ndigits (2nd pos arg) omited to round to nearest whole number
+        return "{}".format(size)
+    
+        # if size_bytes == 0: 
+        #     return "0B" 
+        # size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB") 
+        # i = int(math.floor(math.log(size_bytes, 1024)))
+        # power = math.pow(1024, i) 
+        # size = round(size_bytes / power, 2) 
+        # return "{} {}".format(size, size_name[i])
+
+
+    def _time_modified(self, ts: int) -> str:
+        """ Human readable time modified """
+        x = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return x.strftime('%Y-%m-%d %H:%M')
+    
+
+    def _decode_urlencoded_str(self, filename: str) -> str:
+        """Decode URL-encoded string"""
+        return unquote(filename)

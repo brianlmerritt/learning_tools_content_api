@@ -56,6 +56,9 @@ A helper utility can extract all urls from the activity content.
 1. Set up contributing possibility
 1. Add LTI & other content via Selenium?
 1. Add lecture capture
+1. Maybe consider
+- Provide script command options to exclude content if unused &/or hidden (or if unused to help reduce file/data size of the Moodle instance)
+- Include the Moodle contextid of the content to be able to work out which users have permissions to view, etc..  Note debug/course_modules.csv does include the contextid
 
 ## Contributing ##
 
