@@ -18,21 +18,29 @@ use_uat = os.getenv('USE_UAT', 'False').lower() in ['true', '1', 'yes']
 moodle_rest_connection = moodle_rest(use_uat=use_uat)
 moodle_content_helper = moodle_content_helpers(moodle_rest_connection)
 
-courses = moodle_rest_connection.get_courses()
-
 current_courses = pd.DataFrame()
 
 # Get lists courses first
 if idnumber_list is not None and idnumber_list != ['']:
-    current_courses = pd.concat([current_courses, moodle_rest_connection.get_matching_courses_from_list('idnumber', idnumber_list)], ignore_index=True)
+    matched_from_list = moodle_rest_connection.get_matching_courses_from_list('idnumber', idnumber_list)
+    if matched_from_list is not None and not matched_from_list.empty:
+        current_courses = pd.concat([current_courses, matched_from_list], ignore_index=True)
 
 print(f"Found {len(current_courses)} courses from the course ids in idnumber_list provided.")
 
 # Get search courses next
 if idnumber_search not in [None, '']:
-    current_courses = pd.concat([current_courses, moodle_rest_connection.get_matching_courses('idnumber', idnumber_search)], ignore_index=True)
+    matched_from_search = moodle_rest_connection.get_matching_courses('idnumber', idnumber_search)
+    if matched_from_search is not None and not matched_from_search.empty:
+        current_courses = pd.concat([current_courses, matched_from_search], ignore_index=True)
+
+if not current_courses.empty and 'id' in current_courses.columns:
+    current_courses = current_courses.drop_duplicates(subset=['id']).reset_index(drop=True)
 
 print(f"We now have a total of {len(current_courses)} courses including idnumbers and course ids.")
+
+if current_courses.empty:
+    print("No accessible courses matched the supplied IDNUMBER filters.")
 
 for _, current_course in current_courses.iterrows():
     course, course_modules, course_sections, course_blocks, course_resources = moodle_content_helper.set_course(current_course['id'])

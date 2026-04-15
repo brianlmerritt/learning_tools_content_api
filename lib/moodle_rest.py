@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from lib.event_logger import EventLogger
 from typing import Optional, Dict, Any
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
 import requests
 from bs4 import BeautifulSoup
@@ -27,20 +27,27 @@ class moodle_rest:
             self.moodle_url = os.getenv('UAT_MOODLE_URL')
             self.moodle_user = os.getenv('UAT_MOODLE_USER')
             self.moodle_password = os.getenv('UAT_MOODLE_PASSWORD')
+            self.configured_rest_service_name = os.getenv('UAT_MOODLE_SERVICE_NAME', 'configured token')
+            self.rest_token_source = os.getenv('UAT_MOODLE_REST_TOKEN_SOURCE', 'configured').strip().lower()
         else:
             self.moodle_api_token = os.getenv('MOODLE_TOKEN')
             self.moodle_url = os.getenv('MOODLE_URL')
             self.moodle_user = os.getenv('MOODLE_USER')
             self.moodle_password = os.getenv('MOODLE_PASSWORD')
+            self.configured_rest_service_name = os.getenv('MOODLE_SERVICE_NAME', 'configured token')
+            self.rest_token_source = os.getenv('MOODLE_REST_TOKEN_SOURCE', 'configured').strip().lower()
 
 
         self.rest_endpoint = '/webservice/rest/server.php'
+        self.mobile_service_name = 'moodle_mobile_app'
         self.event_logger = EventLogger()
         self.headers = {"Accept": "application/json"}
         self.timeout = 60
         self.max_retries = 3
         self.retry_delay = 5  # seconds
         self.moodle_web_session = None
+        self.active_rest_token = self.moodle_api_token
+        self.active_rest_service_name = self.configured_rest_service_name if self.moodle_api_token else None
 
         # Initialize connection
         self.initialize_connection()
@@ -50,6 +57,14 @@ class moodle_rest:
         """Initialize connection and required data with retry logic"""
         try:
             self.moodle_mobile_token = self.get_moodle_mobile_token()
+            self.select_rest_token()
+
+            self.event_logger.log_data(
+                "rest_service_selected",
+                f"Using Moodle REST service '{self.active_rest_service_name}'"
+            )
+            print(f"Using Moodle REST service: {self.active_rest_service_name}")
+
             self.moodle_courses = None
             self.current_course = None
             self.current_course_blocks = None
@@ -57,23 +72,55 @@ class moodle_rest:
             self.current_course_sections = None
             self.current_course_content = None
             self.current_course_resources = None
-            self.get_courses()
         except Exception as e:
             self.event_logger.log_data("initialization_error", f"Failed to initialize Moodle connection: {str(e)}")
             raise
 
+    def select_rest_token(self):
+        sources = {
+            'configured': (self.moodle_api_token, self.configured_rest_service_name),
+            'mobile': (self.moodle_mobile_token, self.mobile_service_name),
+        }
+
+        if self.rest_token_source == 'auto':
+            preferred_sources = ['configured', 'mobile']
+        elif self.rest_token_source in sources:
+            preferred_sources = [self.rest_token_source, 'mobile' if self.rest_token_source == 'configured' else 'configured']
+        else:
+            raise MoodleRESTError(
+                f"Invalid Moodle REST token source '{self.rest_token_source}'. Use configured, mobile, or auto."
+            )
+
+        for source_name in preferred_sources:
+            token, service_name = sources[source_name]
+            if token:
+                self.active_rest_token = token
+                self.active_rest_service_name = service_name
+                return
+
+        raise MoodleRESTError("No Moodle REST token available. Set MOODLE_TOKEN or ensure username/password can obtain a service token.")
+
     # Returns a tuple of web token and api token but only one will be set, with the priority being mobile app token
     def get_moodle_mobile_token(self):
         response = httpx.get(
-            # f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=rvc_external_webservices",
-            f"{self.moodle_url}/login/token.php?username={self.moodle_user}&password={self.moodle_password}&service=moodle_mobile_app",
+            f"{self.moodle_url}/login/token.php",
+            params={
+                'username': self.moodle_user,
+                'password': self.moodle_password,
+                'service': self.mobile_service_name,
+            },
             timeout=60
         )
         if response.status_code == 200:
             if response.json().get('error'):
-                print(f"Failed to get token: {response.json().get('error')} - most probably the cause is moodle_mobile_app is not enabled.")
-                print(f"Now attempting to get a web login, which requires MOODLE_USER and MOODLE_PASSWORD to be set in .env")
-                self.get_moodle_session()
+                self.event_logger.log_data(
+                    "mobile_token_unavailable",
+                    f"Failed to get {self.mobile_service_name} token: {response.json().get('error')}"
+                )
+                if self.moodle_api_token is None:
+                    print(f"Failed to get token: {response.json().get('error')} - most probably the cause is {self.mobile_service_name} is not enabled.")
+                    print("Now attempting to get a web login, which requires MOODLE_USER and MOODLE_PASSWORD to be set in .env")
+                    self.get_moodle_session()
                 return None
             return response.json().get('token')
         else:
@@ -109,15 +156,51 @@ class moodle_rest:
         
     def get_courses(self):
         if self.moodle_courses is None:
-            response = self.get_moodle_rest_request('core_course_get_courses')
-            self.moodle_courses = pd.DataFrame(response)
+            response = self.get_moodle_rest_request('core_course_get_courses_by_field')
+            self.moodle_courses = pd.DataFrame(response.get('courses', []))
         return self.moodle_courses
+
+    def cache_courses(self, courses_df):
+        if courses_df is None or courses_df.empty:
+            return courses_df
+
+        if self.moodle_courses is None or self.moodle_courses.empty:
+            self.moodle_courses = courses_df.copy()
+        else:
+            self.moodle_courses = pd.concat([self.moodle_courses, courses_df], ignore_index=True)
+            self.moodle_courses = self.moodle_courses.drop_duplicates(subset=['id'], keep='last')
+        return courses_df
+
+    def get_courses_by_field(self, field=None, value=None):
+        parameters = {}
+        if field not in [None, '']:
+            parameters['field'] = field
+        if value not in [None, '']:
+            parameters['value'] = value
+
+        response = self.get_moodle_rest_request('core_course_get_courses_by_field', **parameters)
+        courses = pd.DataFrame(response.get('courses', []))
+        return self.cache_courses(courses)
+
+    def search_courses(self, value, page=0, perpage=0):
+        if value in [None, '']:
+            return pd.DataFrame()
+
+        response = self.get_moodle_rest_request(
+            'core_course_search_courses',
+            criterianame='search',
+            criteriavalue=value,
+            page=page,
+            perpage=perpage,
+        )
+        courses = pd.DataFrame(response.get('courses', []))
+        return self.cache_courses(courses)
 
     # Get the html content of a Moodle file (index.html) object
     def get_moodle_web_file_content(self, moodle_file_url):
         try:
 
-            if self.moodle_mobile_token is None:
+            if self.active_rest_token is None:
                 moodle_file_url = moodle_file_url.replace('/webservice', '')  # Remove /webservice from URL
                 if self.moodle_web_session is None:
                     raise Exception("No session available for web requests")
@@ -129,7 +212,7 @@ class moodle_rest:
                     raise Exception("Login required to access file - alter this code to deal with that failure!")
 
             else:
-                token_param = f'token={self.moodle_mobile_token}'
+                token_param = f'token={self.active_rest_token}'
 
                 separator = '&' if '?' in moodle_file_url else '?'
                 response = httpx.get(
@@ -172,6 +255,12 @@ class moodle_rest:
 
     def get_course(self, course_id):
         try:
+            if self.moodle_courses is None or self.moodle_courses.empty:
+                self.get_courses()
+
+            if 'id' not in self.moodle_courses.columns or course_id not in self.moodle_courses['id'].values:
+                self.get_courses_by_field('id', course_id)
+
             course = self.moodle_courses.loc[self.moodle_courses['id'] == course_id]
             return course.iloc[0]
         except:
@@ -180,6 +269,8 @@ class moodle_rest:
     # general "search course fields for value" and if field valid name and match found return course
     def get_course_by(self, field='id', value=None):
         try:
+            if self.moodle_courses is None or self.moodle_courses.empty:
+                self.get_courses()
             course = self.moodle_courses.loc[self.moodle_courses[field] == value]
             return course.iloc[0]
         except:
@@ -220,8 +311,13 @@ class moodle_rest:
             raise
 
     def get_matching_courses(self, field='id', value=None):
+        if value in [None, '']:
+            return None
+
         if "*" in value:
             pattern = value.replace("*", ".*")
+            if self.moodle_courses is None:
+                self.get_courses()
             try:
                 courses = self.moodle_courses[self.moodle_courses[field].str.match(pattern, na=False)]
                 return courses
@@ -229,7 +325,7 @@ class moodle_rest:
                 return None
         else:
             try:
-                courses = self.moodle_courses.loc[self.moodle_courses[field] == value]
+                courses = self.get_courses_by_field(field, value)
                 return courses
             except:
                 return None
@@ -238,11 +334,15 @@ class moodle_rest:
         courses = pd.DataFrame()  # Initialize an empty DataFrame to store matching courses
         for value in list_of_values:
             try:
-                matched_courses = self.moodle_courses.loc[self.moodle_courses[field] == value]
+                matched_courses = self.get_matching_courses(field, value)
+                if matched_courses is None or matched_courses.empty:
+                    continue
                 courses = pd.concat([courses, matched_courses], ignore_index=True)
             except Exception as e:
                 self.event_logger.log_data("get_matching_courses_from_list_error", f"Error matching course for value {value}: {str(e)}")
-        return courses if not courses.empty else None
+        if courses.empty:
+            return None
+        return courses.drop_duplicates(subset=['id'], keep='last')
 
     # Note calling this with new course_id will update the current course
     def get_course_modules(self, course_id):
@@ -335,14 +435,21 @@ class moodle_rest:
 
 
     # Call Moodle API - note does not throw exception on error
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(DatabaseConnectionError),
+    )
     def get_moodle_rest_request(self, moodle_function: str, **kwargs) -> Dict[str, Any]:
         """
         Enhanced Moodle REST API request with retry logic and better error handling
         """
+        if not self.active_rest_token:
+            raise MoodleRESTError("No active Moodle REST token is available for API requests.")
+
         parameters = dict(self.flatten_api_parameters(kwargs))
         parameters.update({
-            "wstoken": self.moodle_api_token,
+            "wstoken": self.active_rest_token,
             "moodlewsrestformat": "json",
             "wsfunction": moodle_function
         })
@@ -378,6 +485,9 @@ class moodle_rest:
             # Sleep before retry
             time.sleep(self.retry_delay)
             raise  # Let retry decorator handle it
+
+        except MoodleRESTError:
+            raise
             
         except httpx.RequestError as e:
             self.event_logger.log_data("request_error", f"Request failed: {str(e)}")
@@ -390,6 +500,6 @@ class moodle_rest:
         except Exception as e:
             self.event_logger.log_data(
                 "unexpected_error",
-                f"Unexpected error with parameters: {parameters}, error: {str(e)}"
+                f"Unexpected error with service {self.active_rest_service_name}, parameters: {parameters}, error: {str(e)}"
             )
             raise MoodleRESTError(f"Unexpected Error: {str(e)}")
