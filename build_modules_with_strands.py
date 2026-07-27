@@ -105,6 +105,15 @@ def clean_text(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+def list_course_folders(base_dir):
+    """Return candidate course folders in a base directory."""
+    return [
+        name for name in sorted(os.listdir(base_dir))
+        if os.path.isdir(os.path.join(base_dir, name))
+        and not name.startswith(('.', '_'))
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Sections
 # ---------------------------------------------------------------------------
@@ -675,6 +684,8 @@ def _matches_target(name, target):
 
 
 def main():
+    global BASE_DIR
+
     parser = argparse.ArgumentParser(
         description='Build per-course and combined modules_with_strands CSV outputs.',
     )
@@ -695,14 +706,26 @@ def main():
     print(f'Looking for course folders in: {BASE_DIR}')
 
     # All course folders (any subdirectory not starting with . or _)
-    all_folders = [
-        name for name in sorted(os.listdir(BASE_DIR))
-        if os.path.isdir(os.path.join(BASE_DIR, name))
-        and not name.startswith(('.', '_'))
-    ]
+    all_folders = list_course_folders(BASE_DIR)
 
     # Folders to process
     folders = [f for f in all_folders if _matches_target(f, target)]
+
+    if not folders:
+        fallback_dir = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'course_data')
+        )
+        if os.path.abspath(BASE_DIR) != fallback_dir and os.path.isdir(fallback_dir):
+            print(f'No matching folders in {BASE_DIR}; trying {fallback_dir}')
+            fallback_all_folders = list_course_folders(fallback_dir)
+            fallback_folders = [
+                f for f in fallback_all_folders if _matches_target(f, target)
+            ]
+            if fallback_folders:
+                BASE_DIR = fallback_dir
+                all_folders = fallback_all_folders
+                folders = fallback_folders
+                print(f'Looking for course folders in: {BASE_DIR}')
 
     if not folders:
         print(f'No matching folders in {BASE_DIR}')

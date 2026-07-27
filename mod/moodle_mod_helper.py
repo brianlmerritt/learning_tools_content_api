@@ -243,27 +243,38 @@ class ModuleHelper:
     def _process_item_usage(self, items: List[dict], module_data: dict) -> List[dict]:
         """Process item usage information"""
         items_with_file_check = []
-        
+        module_visible = module_data.get(f'{self.modtype}_visible', False)
+
         # Group items by ID
         unique_item_ids = set(item[f'{self.component_name}_id'] for item in items)
-        
+
         for item_id in unique_item_ids:
             item_group = [i for i in items if i[f'{self.component_name}_id'] == item_id]
-            
+
             html_item = next((i for i in item_group if i[f'{self.component_name}_type'] == 'html'), None)
+            html_content = ''
             if html_item:
-                html_item['is_used'] = module_data.get(f'{self.modtype}_visible', False)
-                html_content = html_item.get('clean_html', '')
+                html_item['is_used'] = module_visible
+                html_content = html_item.get('clean_html', '') or ''
                 items_with_file_check.append(html_item)
-                
-                file_items = [i for i in item_group if i[f'{self.component_name}_type'] == 'file']
-                for file_item in file_items:
+
+            # File items are emitted whether or not the group has an html sibling.
+            # A book chapter always has one (index.html), but mod_resource and
+            # mod_folder groups are files only - gating the whole group on
+            # html_item silently discarded every one of them.
+            file_items = [i for i in item_group if i[f'{self.component_name}_type'] == 'file']
+            for file_item in file_items:
+                if html_item:
+                    # Prose exists: the file is "used" only if the prose links it.
                     file_item['is_used'] = (
-                        module_data.get(f'{self.modtype}_visible', False) and 
+                        module_visible and
                         file_item[f'{self.component_name}_filename'] in html_content
                     )
-                    items_with_file_check.append(file_item)
-        
+                else:
+                    # No prose to reference it - the file IS the resource.
+                    file_item['is_used'] = module_visible
+                items_with_file_check.append(file_item)
+
         return self.content_cleaner.clean_encoding_artifacts(
             self.content_cleaner.clean_escaped_slashes(items_with_file_check)
         )
