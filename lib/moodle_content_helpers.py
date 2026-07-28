@@ -102,6 +102,18 @@ class moodle_content_helpers:
 
     
     def get_course_content(self, course, course_modules, course_sections, course_blocks, course_resources):
+        if not isinstance(course_modules, pd.DataFrame):
+            course_modules = pd.DataFrame(columns=['modname'])
+        elif 'modname' not in course_modules.columns:
+            course_modules = course_modules.copy()
+            course_modules['modname'] = pd.Series(dtype='object')
+
+        if not isinstance(course_resources, pd.DataFrame):
+            course_resources = pd.DataFrame(columns=['modname'])
+        elif 'modname' not in course_resources.columns:
+            course_resources = course_resources.copy()
+            course_resources['modname'] = pd.Series(dtype='object')
+
         # Temp debug code
         self.append_course_modules(course_modules, "debug")
 

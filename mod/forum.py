@@ -20,8 +20,12 @@ class mod_forum:
                     if "forum_discussion_id" not in merged_forum_discussion or merged_forum_discussion['forum_discussion_id'] is None:
                         forum_discussion_posts = {'posts': []}
                     else:
-                        forum_discussion_id = merged_forum_discussion['forum_discussion_discussion']
-                        forum_discussion_posts = self.moodle_rest.get_forum_discussion_posts(forum_discussion_id)
+                        forum_discussion_id = merged_forum_discussion.get('forum_discussion_id')
+                        try:
+                            forum_discussion_id = int(forum_discussion_id)
+                            forum_discussion_posts = self.moodle_rest.get_forum_discussion_posts(forum_discussion_id)
+                        except (TypeError, ValueError):
+                            forum_discussion_posts = {'posts': []}
 
                     if forum_discussion_posts is None or "exception" in forum_discussion_posts:
                         forum_discussion_posts = {'posts': []}
