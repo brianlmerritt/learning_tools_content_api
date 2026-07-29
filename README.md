@@ -47,6 +47,54 @@ A helper utility can extract all urls from the activity content.
 - URLs
 - Forums
 
+## Strand mapping (build_modules_with_strands.py)
+
+After `get_moodle_courses_data.py` has populated `course_data/`, run:
+
+`python3 build_modules_with_strands.py`            # all courses
+`python3 build_modules_with_strands.py <folder>`   # one course
+
+Outputs, per course and combined:
+
+- `{course}_modules_with_strands.csv` - one row per content item (books,
+  pages, labels, URLs, resources, folders, forums) with section, strand,
+  sub-strand, week and `in_strand_map`.
+- `course_data/all_modules_with_strands.csv` - all courses combined.
+- `course_data/all_courses_with_strands.csv` - one row per course:
+  course id/fullname/shortname/category, `course_strand` (see below),
+  `has_strand_map`, item counts. The course-level companion to the
+  per-item CSV (together they prefigure the planned two-table
+  moodle_content design: course table + content table).
+
+Strand assignment, in priority order:
+
+1. **Strand Map page links** - courses with a "Strand Map" page (the
+   BVetMed hub estate) resolve items via the map, `in_strand_map = True`.
+2. **Section inheritance** - items sharing a section with strand-mapped
+   content inherit the section's strand.
+3. **Strand-course any-term rule** - a course whose idnumber matches the
+   SRS strand-module dialect (`1VETS01_A_Y_202627`-style, or the UBVETMD
+   PVP course) and whose fullname resolves to a known strand IS a strand
+   course (`course_strand` is set). Inside it, any full medical strand
+   term in an item name or label text flags the item - no adjacency
+   needed. Short abbreviations (ah, cs, pos...) and the word "skin" still
+   require rule 4's adjacency; both restrictions are deliberate
+   false-positive guards.
+4. **Term+strand adjacency rule** (all courses) - a strand term
+   immediately preceded or followed by the word "strand"/"strands"
+   ("Alimentary Strand", "the POS strand", "Strand: Alimentary").
+5. Otherwise the `strand` column falls back to the content type.
+
+The vocabulary (`STRAND_TERMS`) is vendored from moodle-local_curricmap
+`matcher.php::default_rules()` synonyms - keep the two in sync. Same
+deliberate exclusions as the plugin: `end`, `nma`.
+
+Note on file resources: `mod_resource`/`mod_folder` contents are files
+with no html sibling; for those, `is_used` means "module visible" (the
+file IS the resource), whereas book/page files require their filename to
+appear in the prose. Earlier extracts silently dropped files-only groups
+entirely - re-extract any `course_data` captured before 2026-07-27.
+
 ## TODO ##
 
 1. Extract data from Moodle for quizzes (to start)

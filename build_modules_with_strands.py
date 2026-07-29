@@ -68,6 +68,7 @@ OUTPUT_COLUMNS = [
 ]
 
 COMBINED_OUTPUT_NAME = 'all_modules_with_strands.csv'
+COURSES_OUTPUT_NAME = 'all_courses_with_strands.csv'
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +168,170 @@ def parse_strand_legend(html):
             for code in (c.strip() for c in codes_part.split('/')):
                 legend[code] = full_name
     return legend
+
+
+# ---------------------------------------------------------------------------
+# Strand-term detection for courses that ARE a strand (no "Strand Map" page).
+#
+# Vocabulary vendored from moodle-local_curricmap
+# classes/local/matcher.php::default_rules() 'synonyms' (keep in sync), plus
+# the canonical strand display names. Deliberately absent, same as the
+# plugin: 'end' (false-positives on "end of ...") and 'nma' (no Sofia strand).
+#
+# Detection rule (Brian, 2026-07-28): a strand term counts only when it is
+# immediately preceded or followed by the word "strand"/"strands" — e.g.
+# "Alimentary Strand", "the POS strand", "Strand: Alimentary". Adjacency is
+# the guard that makes short abbreviations (ah, cs, pos, rs) safe.
+# ---------------------------------------------------------------------------
+
+STRAND_TERMS = {
+    'Alimentary': ['alimentary', 'alim', 'digestion', 'digestive'],
+    'Animal Husbandry': ['animal husbandry', 'ah'],
+    'Cardiovascular & Respiratory': [
+        'cardiovascular and respiratory', 'cardiovascular respiratory',
+        'cardiovascular', 'respiratory', 'cvrs', 'cs', 'rs'],
+    'Developmental Biology': ['developmental biology', 'devb'],
+    'Endocrine': ['endocrine'],
+    'Evidence Based Medicine': [
+        'scholarship and evidence based medicine',
+        'scholarship evidence based medicine',
+        'evidence based medicine', 'ebm', 'sebm'],
+    'Integrated & Applied Anatomy': [
+        'integrated and applied anatomy', 'integrated applied anatomy', 'iaa'],
+    'Locomotor': ['locomotor', 'locomotion', 'loco', 'loc'],
+    'Lymphoreticular & Haemopoietic': [
+        'lymphoreticular and haemopoietic', 'lymphoreticular haemopoietic',
+        'lymphoreticular', 'haemopoietic', 'lym'],
+    'Neurology, Ophthalmology & Special Senses': [
+        'neurology ophthalmology and special senses',
+        'neurology ophthalmology special senses',
+        'neurology', 'nervous', 'noss'],
+    'Population Medicine & Veterinary Public Health': [
+        'population medicine and veterinary public health',
+        'population medicine veterinary public health',
+        'population medicine', 'pmvph'],
+    'Principles of Science': ['principles of science', 'principles science', 'pos'],
+    'Principles of Veterinary Practice': [
+        'principles of veterinary practice', 'principles veterinary practice', 'pvp'],
+    'Reproduction': ['reproduction', 'repr'],
+    'Skin': ['skin', 'skn'],
+    'Urinary': ['urinary', 'urn'],
+    'Veterinary Public Health': ['veterinary public health', 'vph'],
+}
+
+
+def _norm_strand_text(text):
+    """Lowercase, unescape, '&' -> 'and', strip punctuation to single spaces."""
+    if not text:
+        return ''
+    t = unescape(str(text)).lower().replace('&', ' and ')
+    return re.sub(r'[^a-z0-9]+', ' ', t).strip()
+
+
+def _build_strand_term_regexes():
+    """(compiled_regex, display_name) list, longest variant first so
+    'cardiovascular respiratory' wins over bare 'cardiovascular'."""
+    pairs = []
+    for display, variants in STRAND_TERMS.items():
+        for v in variants:
+            pairs.append((v, display))
+    pairs.sort(key=lambda p: len(p[0]), reverse=True)
+    compiled = []
+    for variant, display in pairs:
+        phrase = re.escape(variant).replace(r'\ ', r'\s+')
+        compiled.append((re.compile(
+            r'\b(?:' + phrase + r'\s+strands?|strands?\s+' + phrase + r')\b'
+        ), display))
+    return compiled
+
+
+_STRAND_TERM_REGEXES = _build_strand_term_regexes()
+
+
+def detect_strand_by_term(*texts):
+    """Return the strand display name if any text contains a known strand
+    term adjacent to the word 'strand', else None."""
+    for raw in texts:
+        norm = _norm_strand_text(raw)
+        if not norm or 'strand' not in norm:
+            continue
+        for regex, display in _STRAND_TERM_REGEXES:
+            if regex.search(norm):
+                return display
+    return None
+
+
+# A course IS a strand course when its idnumber (== folder name) matches the
+# SRS strand-module dialect matcher.php recognises for the 2026-on estate
+# (1VETS01_A_Y_202627 ...), or the UBVETMD PVP strand course. In such a
+# course any medical term flags strand content (no "strand" adjacency
+# needed); everywhere else the adjacency rule applies (Brian, 2026-07-28).
+STRAND_COURSE_IDNUMBER_PATTERNS = [
+    re.compile(r'^[1-5]VETS\d+_', re.IGNORECASE),
+    re.compile(r'^UBVETMD_\d{6}$', re.IGNORECASE),
+]
+
+# Variants safe to match bare (no adjacent "strand") inside a known strand
+# course: full words only. Short abbreviations (ah, cs, rs, pos, ebm, lym,
+# loc, iaa ...) stay adjacency-only, and 'skin' is excluded because it is an
+# everyday word in veterinary prose ("skin preparation") - it still flags via
+# "Skin strand" adjacency.
+_BARE_MIN_LEN = 4
+_BARE_EXCLUDED = {'skin'}
+
+
+def _build_bare_term_regexes():
+    pairs = []
+    for display, variants in STRAND_TERMS.items():
+        for v in variants:
+            if len(v) >= _BARE_MIN_LEN and v not in _BARE_EXCLUDED:
+                pairs.append((v, display))
+    pairs.sort(key=lambda p: len(p[0]), reverse=True)
+    return [
+        (re.compile(r'\b' + re.escape(v).replace(r'\ ', r'\s+') + r'\b'), display)
+        for v, display in pairs
+    ]
+
+
+_STRAND_BARE_REGEXES = _build_bare_term_regexes()
+
+
+def detect_strand_any_term(*texts):
+    """Strand-course mode: any full medical term flags, no adjacency needed."""
+    for raw in texts:
+        norm = _norm_strand_text(raw)
+        if not norm:
+            continue
+        for regex, display in _STRAND_BARE_REGEXES:
+            if regex.search(norm):
+                return display
+    return None
+
+
+def load_course_info(folder_path, prefix):
+    """{key: value} from the two-column {prefix}_course.csv (key,value rows)."""
+    path = os.path.join(folder_path, f'{prefix}_course.csv')
+    info = {}
+    if not os.path.exists(path):
+        return info
+    with open(path, encoding='utf-8') as f:
+        for row in csv.reader(f):
+            if len(row) >= 2:
+                info[row[0].strip()] = row[1]
+    return info
+
+
+def resolve_course_strand(folder_name, course_info):
+    """The course's OWN strand, when the course is itself a strand course.
+
+    idnumber (folder name) must match a strand-course pattern, and the course
+    fullname must resolve to a known strand term (bare match is safe here -
+    'Alimentary (1VETS01_A_Y_202627)'). Returns display name or None.
+    """
+    if not any(p.match(folder_name or '') for p in STRAND_COURSE_IDNUMBER_PATTERNS):
+        return None
+    fullname = course_info.get('fullname', '') or ''
+    return detect_strand_any_term(fullname) or detect_strand_by_term(fullname)
 
 
 def _match_text_to_strand_name(text, strand_names):
@@ -347,14 +512,16 @@ def parse_strand_table(html, legend, content_names, cmid_to_section,
 def load_content_items(folder_path, prefix, sections_by_id, sections_by_number):
     """Load all content items from every CSV type.
 
-    Returns (items, content_names, cmid_to_section)
+    Returns (items, content_names, cmid_to_section, strand_scan_texts)
         items           - list of dicts with standardised keys
         content_names   - {normalised_cmid: name}
+        strand_scan_texts - {normalised_cmid: label prose for strand-term scan}
         cmid_to_section - {normalised_cmid: section_name}
     """
     items = []
     content_names = {}
     cmid_to_section = {}
+    strand_scan_texts = {}  # cmid -> extra prose to scan for strand terms (labels)
 
     def _lookup_section_by_id(raw_id):
         sid = normalize_cmid(raw_id)
@@ -409,6 +576,11 @@ def load_content_items(folder_path, prefix, sections_by_id, sections_by_number):
         seen.add(cmid)
         sec = _lookup_section_by_id(r.get('label_section_id', ''))
         name = r.get('label_name', '')
+        # Labels carry their prose in clean_text - the place strand mentions
+        # live in strand-courses ("Overall Aims ... of the Alimentary Strand").
+        label_text = r.get('clean_text', '') or ''
+        if label_text:
+            strand_scan_texts[cmid] = label_text
         items.append({
             'content_type': 'label',
             'content_cmid': cmid,
@@ -510,7 +682,7 @@ def load_content_items(folder_path, prefix, sections_by_id, sections_by_number):
         if sec.get('name'):
             cmid_to_section[cmid] = sec['name']
 
-    return items, content_names, cmid_to_section
+    return items, content_names, cmid_to_section, strand_scan_texts
 
 
 # ---------------------------------------------------------------------------
@@ -525,10 +697,24 @@ def process_course(folder_name, master_legend, write_folder_output=True):
     print(f'\nProcessing {folder_name} ...')
 
     sections_by_id, sections_by_number = load_sections(folder_path, prefix)
-    items, content_names, cmid_to_section = load_content_items(
+    items, content_names, cmid_to_section, strand_scan_texts = load_content_items(
         folder_path, prefix, sections_by_id, sections_by_number,
     )
     print(f'  Loaded {len(items)} content items')
+
+    course_info = load_course_info(folder_path, prefix)
+    course_strand = resolve_course_strand(folder_name, course_info)
+    if course_strand:
+        print(f'  Course IS a strand course: {course_strand} (idnumber match)')
+
+    def _detect_item_strand(name, cmid):
+        """Strand-course mode: any medical term. Otherwise: term+'strand' only."""
+        extra = strand_scan_texts.get(cmid, '')
+        if course_strand:
+            found = detect_strand_any_term(name, extra)
+            if found:
+                return found
+        return detect_strand_by_term(name, extra)
 
     strand_page = find_strand_map_page(folder_path, prefix)
     has_strand_map = strand_page is not None
@@ -634,7 +820,10 @@ def process_course(folder_name, master_legend, write_folder_output=True):
                     'in_strand_map': False,
                 })
             else:
-                # Not strand-related -> label by content type
+                # Not strand-related via the map -> try strand-term detection
+                # (a matcher.php strand term adjacent to the word "strand" in
+                # the item name or its label prose), else label by content type
+                term_strand = _detect_item_strand(item['content_name'], cmid)
                 output_rows.append({
                     'course_name': folder_name,
                     'content_type': item['content_type'],
@@ -642,15 +831,19 @@ def process_course(folder_name, master_legend, write_folder_output=True):
                     'content_name': item['content_name'],
                     'section_id': item['section_id'],
                     'section_name': item['section_name'],
-                    'strand': item['content_type'],
+                    'strand': term_strand or item['content_type'],
                     'sub_strand': '',
                     'week_number': '',
                     'week_date': '',
                     'in_strand_map': False,
                 })
     else:
-        # No strand map -> everything labelled by content type
+        # No strand map (e.g. the course IS a strand, like 1VETS01) -> try
+        # strand-term detection per item, else label by content type
         for item in items:
+            term_strand = _detect_item_strand(
+                item['content_name'], item['content_cmid'],
+            )
             output_rows.append({
                 'course_name': folder_name,
                 'content_type': item['content_type'],
@@ -658,7 +851,7 @@ def process_course(folder_name, master_legend, write_folder_output=True):
                 'content_name': item['content_name'],
                 'section_id': item['section_id'],
                 'section_name': item['section_name'],
-                'strand': item['content_type'],
+                'strand': term_strand or item['content_type'],
                 'sub_strand': '',
                 'week_number': '',
                 'week_date': '',
@@ -672,7 +865,21 @@ def process_course(folder_name, master_legend, write_folder_output=True):
     else:
         print(f'  Prepared {len(output_rows)} rows (per-folder output skipped)')
 
-    return output_rows, (local_legend if has_strand_map else {})
+    content_type_labels = {'book', 'page', 'label', 'url', 'resource', 'folder', 'forum'}
+    flagged = sum(1 for r in output_rows
+                  if r['strand'] and r['strand'] not in content_type_labels)
+    course_record = {
+        'course_folder': folder_name,
+        'course_id': course_info.get('id', ''),
+        'fullname': course_info.get('fullname', ''),
+        'shortname': course_info.get('shortname', ''),
+        'category': course_info.get('categoryname', ''),
+        'course_strand': course_strand or '',
+        'has_strand_map': has_strand_map,
+        'items_total': len(output_rows),
+        'items_strand_flagged': flagged,
+    }
+    return output_rows, (local_legend if has_strand_map else {}), course_record
 
 
 def _matches_target(name, target):
@@ -746,13 +953,15 @@ def main():
 
     # Pass 2: process each target course
     combined_rows = []
+    course_records = []
     for folder in folders:
-        rows, local = process_course(
+        rows, local, course_record = process_course(
             folder,
             master_legend,
             write_folder_output=not args.nofolders,
         )
         combined_rows.extend(rows)
+        course_records.append(course_record)
         master_legend.update(local)
 
     combined_output_path = os.path.join(BASE_DIR, COMBINED_OUTPUT_NAME)
@@ -760,6 +969,18 @@ def main():
     print(
         f'Wrote {len(combined_rows)} rows -> '
         f'{os.path.basename(combined_output_path)}'
+    )
+
+    # Course-level companion (prefigures the two-table design: one row per
+    # course here, one row per content item in the combined CSV above).
+    courses_output_path = os.path.join(BASE_DIR, COURSES_OUTPUT_NAME)
+    with open(courses_output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=list(course_records[0].keys()))
+        writer.writeheader()
+        writer.writerows(course_records)
+    print(
+        f'Wrote {len(course_records)} course rows -> '
+        f'{os.path.basename(courses_output_path)}'
     )
 
     print('\nDone.')
