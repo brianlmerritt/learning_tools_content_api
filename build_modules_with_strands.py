@@ -78,12 +78,12 @@ COURSES_OUTPUT_NAME = 'all_courses_with_strands.csv'
 def load_csv(path):
     if not os.path.exists(path):
         return []
-    with open(path, encoding='utf-8') as f:
+    with open(path, encoding='utf-8-sig') as f:
         return list(csv.DictReader(f))
 
 
 def write_output_csv(path, rows):
-    with open(path, 'w', newline='', encoding='utf-8') as f:
+    with open(path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.DictWriter(f, fieldnames=OUTPUT_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
@@ -314,7 +314,7 @@ def load_course_info(folder_path, prefix):
     info = {}
     if not os.path.exists(path):
         return info
-    with open(path, encoding='utf-8') as f:
+    with open(path, encoding='utf-8-sig') as f:
         for row in csv.reader(f):
             if len(row) >= 2:
                 info[row[0].strip()] = row[1]
@@ -974,7 +974,7 @@ def main():
     # Course-level companion (prefigures the two-table design: one row per
     # course here, one row per content item in the combined CSV above).
     courses_output_path = os.path.join(BASE_DIR, COURSES_OUTPUT_NAME)
-    with open(courses_output_path, 'w', newline='', encoding='utf-8') as f:
+    with open(courses_output_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.DictWriter(f, fieldnames=list(course_records[0].keys()))
         writer.writeheader()
         writer.writerows(course_records)

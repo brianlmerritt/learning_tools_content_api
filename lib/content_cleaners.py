@@ -3,6 +3,7 @@ import pandas as pd
 import base64
 import json
 import os
+import unicodedata
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse, parse_qs
@@ -13,6 +14,9 @@ URL_PATTERN = re.compile(
     r'^(https?://[^\s]+)$',  # Simple URL pattern matching http/https URLs
     re.IGNORECASE
 )
+
+# Control characters excluding tab/newline/carriage-return
+CONTROL_CHARS_PATTERN = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 class content_cleaners:
     def __init__(self) -> None:
@@ -183,7 +187,10 @@ class content_cleaners:
             }
 
 
-        html_content = html_content.encode('ascii', 'ignore').decode('ascii')
+        # Normalise instead of stripping to ASCII: NFKC folds compatibility forms
+        # (incl. non-breaking space -> space) while keeping µ, °, accented chars etc.
+        html_content = unicodedata.normalize('NFKC', html_content)
+        html_content = CONTROL_CHARS_PATTERN.sub('', html_content)
         
         # Extract and save embedded images
         html_content = self.extract_and_save_embedded_images(

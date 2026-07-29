@@ -64,23 +64,24 @@ class moodle_content_helpers:
     def save_item_raw(self, item_to_save, directory, filename):
         if isinstance(item_to_save, pd.DataFrame) :
             os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
-            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", index=False)
+            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", index=False, encoding='utf-8-sig')
         elif isinstance(item_to_save, pd.Series):
             os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
-            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", header=False)
+            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", header=False, encoding='utf-8-sig')
         elif isinstance(item_to_save, dict):
-            with open(f"{self.data_store_path}{directory}/{filename}.json", "w") as file:
+            with open(f"{self.data_store_path}{directory}/{filename}.json", "w", encoding='utf-8') as file:
                 json.dump(item_to_save, file)
         elif isinstance(item_to_save, list):
-            with open(f"{self.data_store_path}{directory}/{filename}.csv", "w") as file:
+            with open(f"{self.data_store_path}{directory}/{filename}.csv", "w", newline='', encoding='utf-8-sig') as file:
                 writer = csv.writer(file)
                 writer.writerows(item_to_save)
         return
-    
+
     def append_course_modules(self, course_modules, directory):
         full_directory_path = os.path.join(self.data_store_path, directory)
         os.makedirs(full_directory_path, exist_ok=True)  # Ensure the directory exists
-        course_modules.to_csv(os.path.join(full_directory_path, "course_modules.csv"), mode='a', index=False)
+        # Plain utf-8 (no BOM): append mode would write a BOM mid-file on every call
+        course_modules.to_csv(os.path.join(full_directory_path, "course_modules.csv"), mode='a', index=False, encoding='utf-8')
         return
     
     def extract_file_details(self, content, all_files):

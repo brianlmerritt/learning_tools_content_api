@@ -10,7 +10,11 @@ from lib.moodle_rest import moodle_rest
 from lib.moodle_content_helpers import moodle_content_helpers
 
 idnumber_search = os.getenv('IDNUMBER_SEARCH')
-idnumber_list = json.loads(os.getenv("IDNUMBER_LIST", "[]"))  
+idnumber_search_list = json.loads(os.getenv("IDNUMBER_SEARCH_LIST", "[]"))
+idnumber_search_list = idnumber_search_list if isinstance(idnumber_search_list, list) else []
+if idnumber_search not in [None, '']:
+    idnumber_search_list.append(idnumber_search)
+idnumber_list = json.loads(os.getenv("IDNUMBER_LIST", "[]"))
 idnumber_list = idnumber_list if isinstance(idnumber_list, list) else []
 
 use_uat = os.getenv('USE_UAT', 'False').lower() in ['true', '1', 'yes']
@@ -28,9 +32,9 @@ if idnumber_list is not None and idnumber_list != ['']:
 
 print(f"Found {len(current_courses)} courses from the course ids in idnumber_list provided.")
 
-# Get search courses next
-if idnumber_search not in [None, '']:
-    matched_from_search = moodle_rest_connection.get_matching_courses('idnumber', idnumber_search)
+# Get search courses next (IDNUMBER_SEARCH_LIST patterns plus legacy IDNUMBER_SEARCH)
+if idnumber_search_list:
+    matched_from_search = moodle_rest_connection.get_matching_courses_from_list('idnumber', idnumber_search_list)
     if matched_from_search is not None and not matched_from_search.empty:
         current_courses = pd.concat([current_courses, matched_from_search], ignore_index=True)
 

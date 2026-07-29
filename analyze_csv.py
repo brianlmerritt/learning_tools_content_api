@@ -9,7 +9,7 @@ def analyze_csv_file(file_path):
     html_warnings = []
     # Read the entire file into memory so we can make two passes
     try:
-        with open(file_path, encoding='utf-8', errors='replace') as f:
+        with open(file_path, encoding='utf-8-sig', errors='replace') as f:
             lines = f.readlines()
     except Exception as e:
         errors.append(f"{os.path.basename(file_path)}, N/A, N/A, failed to open file: {e}")

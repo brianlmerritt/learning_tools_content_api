@@ -40,13 +40,13 @@ def process_folder_for_files(folder_path):
         return
     
     try:
-        df_files = pd.read_csv(files_csv_path, on_bad_lines='skip')
+        df_files = pd.read_csv(files_csv_path, on_bad_lines='skip', encoding='utf-8-sig')
     except Exception as e:
         print(f"Error reading {files_csv_path}: {e}")
         return
     
     try:
-        df_urls = pd.read_csv(urls_found_csv_path, on_bad_lines='skip')
+        df_urls = pd.read_csv(urls_found_csv_path, on_bad_lines='skip', encoding='utf-8-sig')
     except Exception as e:
         print(f"Error reading {urls_found_csv_path}: {e}")
         return
@@ -78,8 +78,8 @@ def process_folder_for_files(folder_path):
     used_csv_path = os.path.join(folder_path, "files_used.csv")
     not_used_csv_path = os.path.join(folder_path, "files_not_used.csv")
     
-    df_used.to_csv(used_csv_path, index=False)
-    df_not_used.to_csv(not_used_csv_path, index=False)
+    df_used.to_csv(used_csv_path, index=False, encoding='utf-8-sig')
+    df_not_used.to_csv(not_used_csv_path, index=False, encoding='utf-8-sig')
     
     print(f"Folder {folder_path}: {len(df_used)} used files, {len(df_not_used)} not used files.")
 

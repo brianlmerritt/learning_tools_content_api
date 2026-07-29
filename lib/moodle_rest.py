@@ -66,6 +66,7 @@ class moodle_rest:
             print(f"Using Moodle REST service: {self.active_rest_service_name}")
 
             self.moodle_courses = None
+            self.moodle_courses_is_full = False
             self.current_course = None
             self.current_course_blocks = None
             self.current_course_modules = None
@@ -155,9 +156,12 @@ class moodle_rest:
 
         
     def get_courses(self):
-        if self.moodle_courses is None:
+        # cache_courses() may have seeded moodle_courses with partial by-field
+        # results, so check the full-fetch flag rather than just None
+        if not self.moodle_courses_is_full:
             response = self.get_moodle_rest_request('core_course_get_courses_by_field')
             self.moodle_courses = pd.DataFrame(response.get('courses', []))
+            self.moodle_courses_is_full = True
         return self.moodle_courses
 
     def cache_courses(self, courses_df):
@@ -316,12 +320,12 @@ class moodle_rest:
 
         if "*" in value:
             pattern = value.replace("*", ".*")
-            if self.moodle_courses is None:
-                self.get_courses()
+            self.get_courses()  # ensures the FULL course list, not a partial by-field cache
             try:
                 courses = self.moodle_courses[self.moodle_courses[field].str.match(pattern, na=False)]
                 return courses
-            except:
+            except Exception as e:
+                self.event_logger.log_data("get_matching_courses_error", f"Pattern '{value}' on field '{field}': {str(e)}")
                 return None
         else:
             try:

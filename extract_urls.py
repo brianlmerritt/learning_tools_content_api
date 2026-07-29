@@ -30,7 +30,7 @@ def process_course_folder(course_folder):
         if filename.endswith(".csv") and not filename.endswith(ignore_suffixes):
             file_path = os.path.join(course_folder, filename)
             try:
-                df = pd.read_csv(file_path, on_bad_lines='skip')
+                df = pd.read_csv(file_path, on_bad_lines='skip', encoding='utf-8-sig')
             except Exception as e:
                 print(f"Error reading {file_path}: {e}")
                 continue
