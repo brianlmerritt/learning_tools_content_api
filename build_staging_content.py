@@ -8,7 +8,8 @@ refresh_curriculum_staging_learn_content:
 
     course_data/course_content.csv    - one row per course (cleaned summary)
     course_data/activity_content.csv  - one row per content chunk
-                                        (page | label | url | book_chapter)
+                                        (section | page | label | url |
+                                         book_chapter)
 
 These load into curriculum_staging.moodle_course_content and
 curriculum_staging.moodle_activity_content. Sources are the per-course folders
@@ -132,6 +133,15 @@ def load_section_names(folder_path, prefix):
     }
 
 
+def active_moodle_url():
+    """Return the Moodle base URL for the corpus being built."""
+    use_uat = (
+        os.getenv('USE_UAT', 'False').strip().lower() in ('true', '1', 'yes')
+    )
+    setting = 'UAT_MOODLE_URL' if use_uat else 'MOODLE_URL'
+    return os.getenv(setting, '').rstrip('/')
+
+
 def build_course_row(info, folder_name, cleaner, folder_path):
     summary = cleaner.process_html_content(
         info.get('summary', ''), folder_path, 'course',
@@ -174,8 +184,49 @@ def activity_row(course_id, course_idnumber, sections, activity_type, row, prefi
     }
 
 
-def build_activity_rows(folder_path, folder_name, course_id, course_idnumber, sections):
+def build_section_rows(folder_path, folder_name, course_id, course_idnumber,
+                       cleaner, moodle_url):
     rows = []
+    path = os.path.join(folder_path, f'{folder_name}_sections.csv')
+    for row in load_csv(path):
+        section_id = to_int(row.get('id'))
+        if section_id == '':
+            continue
+        section_name = clean_name(row.get('name'))
+        component_item_id = to_int(row.get('itemid'))
+        summary = cleaner.process_html_content(
+            row.get('summary', ''), folder_path, 'section', str(section_id),
+            section_name or f'section_{section_id}', str(component_item_id))
+        rows.append({
+            'course_id': course_id,
+            'course_idnumber': course_idnumber,
+            'activity_type': 'section',
+            'cmid': '',
+            'activity_name': section_name,
+            'item_id': component_item_id,
+            'item_title': clean_name(row.get('component')),
+            'item_sortorder': to_int(row.get('section')),
+            'section_id': section_id,
+            'section_name': section_name,
+            'visible': to_flag(row.get('visible')),
+            'activity_url': (
+                f'{moodle_url}/course/section.php?id={section_id}'
+                if moodle_url else ''
+            ),
+            'html_content': summary['cleanest_html'],
+            'text_content': summary['clean_text'],
+            'is_used': '',
+        })
+    return rows
+
+
+def build_activity_rows(folder_path, folder_name, course_id, course_idnumber,
+                        sections, cleaner, moodle_url):
+    rows = []
+
+    rows.extend(build_section_rows(
+        folder_path, folder_name, course_id, course_idnumber, cleaner,
+        moodle_url))
 
     # Books: one row per html chapter ('file' rows are attachment components)
     for row in load_csv(os.path.join(folder_path, f'{folder_name}_books.csv')):
@@ -213,6 +264,7 @@ def main():
 
     base_dir = find_base_dir()
     cleaner = content_cleaners()
+    moodle_url = active_moodle_url()
 
     if args.course:
         folders = [args.course]
@@ -235,7 +287,8 @@ def main():
         sections = load_section_names(folder_path, folder_name)
         acts = build_activity_rows(
             folder_path, folder_name,
-            course_row['course_id'], course_row['course_idnumber'], sections)
+            course_row['course_id'], course_row['course_idnumber'], sections,
+            cleaner, moodle_url)
         course_rows.append(course_row)
         activity_rows.extend(acts)
         print(f'{folder_name}: {len(acts)} activity rows')

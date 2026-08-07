@@ -11,3 +11,4 @@ course_data/
 .DS_Store
 *.zip
 course_data_live/
+tests/
