@@ -61,9 +61,9 @@ class moodle_rest:
 
             self.event_logger.log_data(
                 "rest_service_selected",
-                f"Using Moodle REST service '{self.active_rest_service_name}'"
+                f"Using Moodle REST service '{self.active_rest_service_name}' at '{self.moodle_url}'"
             )
-            print(f"Using Moodle REST service: {self.active_rest_service_name}")
+            print(f"Using Moodle REST service: {self.active_rest_service_name} ({self.moodle_url})")
 
             self.moodle_courses = None
             self.moodle_courses_is_full = False

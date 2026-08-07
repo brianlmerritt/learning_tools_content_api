@@ -12,7 +12,9 @@ class EventLogger:
         Args:
             output_dir (str): Directory path where log_events.csv will be stored
         """
-        self.output_dir = 'course_data/'
+        # Same COURSE_DATA_DIR convention as the fetch/build scripts, so a uat
+        # run logs into the uat corpus instead of clobbering the live log.
+        self.output_dir = os.getenv('COURSE_DATA_DIR', 'course_data').rstrip('/') + '/'
         self.log_file = os.path.join(self.output_dir, "log_events.csv")
         self.events = deque(maxlen=100)  # Only keep last 100 events in memory
         

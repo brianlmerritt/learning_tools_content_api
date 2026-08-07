@@ -29,6 +29,10 @@ import argparse
 from datetime import datetime, timezone
 from html import unescape
 
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.content_cleaners import content_cleaners
 
@@ -51,7 +55,19 @@ ACTIVITY_OUTPUT_NAME = 'activity_content.csv'
 
 
 def find_base_dir():
+    """COURSE_DATA_DIR (default course_data) beside this script, or absolute.
+
+    Set COURSE_DATA_DIR=course_data_uat to build the CSVs of a learn-uat fetch
+    (docs/PLAN_uat_staging.md) - an explicitly set but missing dir is an error,
+    never a silent fallback to the wrong corpus.
+    """
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.getenv('COURSE_DATA_DIR')
+    if data_dir:
+        candidate = data_dir if os.path.isabs(data_dir) else os.path.join(script_dir, data_dir)
+        if not os.path.isdir(candidate):
+            raise SystemExit(f'COURSE_DATA_DIR does not exist: {candidate}')
+        return candidate
     candidate = os.path.join(script_dir, 'course_data')
     return candidate if os.path.isdir(candidate) else script_dir
 

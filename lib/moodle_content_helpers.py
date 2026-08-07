@@ -17,7 +17,10 @@ from mod.forum import mod_forum
 
 class moodle_content_helpers:
     def __init__(self, moodle_rest) -> None:
-        self.data_store_path = 'course_data/'
+        # COURSE_DATA_DIR (docs/PLAN_uat_staging.md): default course_data; set
+        # e.g. course_data_uat for a USE_UAT=true fetch so environments never
+        # share a corpus.
+        self.data_store_path = os.getenv('COURSE_DATA_DIR', 'course_data').rstrip('/') + '/'
         self.moodle_rest = moodle_rest
         self.content_cleaner = content_cleaners()
         self.block_content = block_content()

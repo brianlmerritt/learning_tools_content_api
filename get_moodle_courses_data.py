@@ -17,10 +17,13 @@ if idnumber_search not in [None, '']:
 idnumber_list = json.loads(os.getenv("IDNUMBER_LIST", "[]"))
 idnumber_list = idnumber_list if isinstance(idnumber_list, list) else []
 
-use_uat = os.getenv('USE_UAT', 'False').lower() in ['true', '1', 'yes']
+use_uat = os.getenv('USE_UAT', 'False').strip().lower() in ['true', '1', 'yes']
 
 moodle_rest_connection = moodle_rest(use_uat=use_uat)
 moodle_content_helper = moodle_content_helpers(moodle_rest_connection)
+
+print(f"USE_UAT parsed as: {use_uat}")
+print(f"Moodle base URL: {moodle_rest_connection.moodle_url}")
 
 current_courses = pd.DataFrame()
 
