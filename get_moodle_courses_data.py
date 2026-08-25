@@ -57,18 +57,28 @@ if current_courses.empty:
     print("No accessible courses matched the supplied idnumber filters.")
 
 skipped = 0
+failed = []
 for _, current_course in current_courses.iterrows():
-    course, course_modules, course_sections, course_blocks, course_resources = moodle_content_helper.set_course(current_course['id'])
-    contents_hash = moodle_content_helper.contents_hash()
-    # Unchanged since the last run (same get_contents hash): skip the
-    # expensive per-module content fetches. --force re-extracts regardless.
-    if not args.force and store.unchanged(course['id'], contents_hash):
-        skipped += 1
-        print(f"Unchanged, skipped: {course['fullname']}")
-        continue
-    print(f"\n\nCurrent Course: {course['fullname']}")
-    block_content, book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources, course_urls, course_forums = moodle_content_helper.get_course_content(course, course_modules, course_sections, course_blocks, course_resources)
-    moodle_content_helper.save_course_data(store, contents_hash, course, course_modules, course_sections, course_resources, block_content, book_content, course_file_content, course_folder_content, course_page_content, course_label_content, course_urls, course_forums)
-    print(f"Saved data for {course['fullname']}")
+    label = f"{current_course.get('idnumber') or ''} ({current_course.get('id')}) {current_course.get('fullname') or ''}".strip()
+    # One inaccessible course (hidden, or restricted to the ws user) must not
+    # kill the whole run: log it, move on, report at the end.
+    try:
+        course, course_modules, course_sections, course_blocks, course_resources = moodle_content_helper.set_course(current_course['id'])
+        contents_hash = moodle_content_helper.contents_hash()
+        # Unchanged since the last run (same get_contents hash): skip the
+        # expensive per-module content fetches. --force re-extracts regardless.
+        if not args.force and store.unchanged(course['id'], contents_hash):
+            skipped += 1
+            print(f"Unchanged, skipped: {course['fullname']}")
+            continue
+        print(f"\n\nCurrent Course: {course['fullname']}")
+        block_content, book_content, course_page_content, course_label_content, course_sections, course_file_content, course_folder_content, course_resources, course_urls, course_forums = moodle_content_helper.get_course_content(course, course_modules, course_sections, course_blocks, course_resources)
+        moodle_content_helper.save_course_data(store, contents_hash, course, course_modules, course_sections, course_resources, block_content, book_content, course_file_content, course_folder_content, course_page_content, course_label_content, course_urls, course_forums)
+        print(f"Saved data for {course['fullname']}")
+    except Exception as exception:
+        failed.append((label, str(exception)))
+        print(f"FAILED, skipping: {label} - {exception}")
 
-print(f"\nDone. {skipped} unchanged course(s) skipped.")
+print(f"\nDone. {skipped} unchanged course(s) skipped, {len(failed)} failed.")
+for label, message in failed:
+    print(f"  FAILED {label}: {message}")
