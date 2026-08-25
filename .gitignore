@@ -5,10 +5,13 @@ __pycache__
 *.xlsx
 *.json
 .venv
-course_data/
+course_data/*
 !course_data/.gitkeep
 * copy*py
 .DS_Store
 *.zip
-course_data_live/
+course_data_live/*
+!course_data_live/.gitkeep
+course_data_uat/*
+!course_data_uat/.gitkeep
 tests/
