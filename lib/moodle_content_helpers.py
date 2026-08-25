@@ -17,10 +17,11 @@ from mod.forum import mod_forum
 
 class moodle_content_helpers:
     def __init__(self, moodle_rest) -> None:
-        # COURSE_DATA_DIR (docs/PLAN_uat_staging.md): default course_data; set
-        # e.g. course_data_uat for a USE_UAT=true fetch so environments never
-        # share a corpus.
-        self.data_store_path = os.getenv('COURSE_DATA_DIR', 'course_data').rstrip('/') + '/'
+        # course_data_dir (config.yaml): e.g. course_data_uat for a uat fetch
+        # so environments never share a corpus. Assets and legacy CSV helpers
+        # use it; extracted content itself goes to the sqlite store.
+        from lib.config import course_data_dir
+        self.data_store_path = course_data_dir() + '/'
         self.moodle_rest = moodle_rest
         self.content_cleaner = content_cleaners()
         self.block_content = block_content()
@@ -49,19 +50,37 @@ class moodle_content_helpers:
         course_resources = self.moodle_rest.get_course_resources(course_id)
         return course, course_modules, course_sections, course_blocks, course_resources
 
-    def save_course_data(self, course, course_sections, course_resources, course_blocks, course_books, course_files, course_folders, course_pages, course_labels, course_urls, course_forums):
-        course_idnumber = course['idnumber']
-        self.save_item_raw(course, course_idnumber, f"{course_idnumber}_course")
-        self.save_item_raw(course_sections, course_idnumber, f"{course_idnumber}_sections")
-        self.save_item_raw(course_resources, course_idnumber, f"{course_idnumber}_modules")
-        self.save_item_raw(course_books, course_idnumber, f"{course_idnumber}_books")
-        self.save_item_raw(course_blocks, course_idnumber, f"{course_idnumber}_blocks")
-        self.save_item_raw(course_pages, course_idnumber, f"{course_idnumber}_pages")
-        self.save_item_raw(course_labels, course_idnumber, f"{course_idnumber}_labels")
-        self.save_item_raw(course_files, course_idnumber, f"{course_idnumber}_files")
-        self.save_item_raw(course_folders, course_idnumber, f"{course_idnumber}_folders")
-        self.save_item_raw(course_urls, course_idnumber, f"{course_idnumber}_urls")
-        self.save_item_raw(course_forums, course_idnumber, f"{course_idnumber}_forums")
+    def contents_hash(self):
+        """Hash of the current course's core_course_get_contents payload -
+        names, structure, visibility and the file timestamps inside module
+        contents - the store's cheap has-anything-changed signal."""
+        import hashlib
+        payload = self.moodle_rest.current_course_content
+        if not isinstance(payload, pd.DataFrame) or payload.empty:
+            return ''
+        return hashlib.sha1(payload.to_json().encode('utf-8')).hexdigest()
+
+    def save_course_data(self, store, contents_hash, course, course_modules, course_sections, course_resources, course_blocks, course_books, course_files, course_folders, course_pages, course_labels, course_urls, course_forums):
+        """Replace this course's rows in the sqlite content store (one
+        transaction; ruled 2026-08-25, superseding the per-course CSV tree).
+        Table names / columns mirror the old CSV files, plus course_modules =
+        the true all-modules union from get_contents (subsection cms
+        included), which the CSV era discarded. The 'modules' table keeps its
+        historical (misleading) name from *_modules.csv: it is the
+        mod_resource_get_resources_by_courses payload."""
+        store.replace_course(course, contents_hash, {
+            'sections': course_sections,
+            'course_modules': course_modules,
+            'modules': course_resources,
+            'books': course_books,
+            'blocks': course_blocks,
+            'pages': course_pages,
+            'labels': course_labels,
+            'files': course_files,
+            'folders': course_folders,
+            'urls': course_urls,
+            'forums': course_forums,
+        })
         return
 
     def save_item_raw(self, item_to_save, directory, filename):

@@ -305,6 +305,33 @@ class moodle_rest:
                 course_modules = pd.concat([course_modules, modules_to_add], ignore_index=True)
             
             self.current_course_sections = self.current_course_content.drop(columns=['modules'])
+
+            # Moodle 4.5 subsections: a delegated section row (component
+            # 'mod_subsection') is owned by a subsection module sitting in a
+            # parent section; itemid == that module's instance. Resolve it so
+            # every delegated section carries parent_section_id ('' for plain
+            # sections). Appended as the LAST column so every existing
+            # consumer (all read columns by name) is untouched.
+            subsection_parents = {}
+            if not course_modules.empty and 'modname' in course_modules.columns:
+                subsection_cms = course_modules[course_modules['modname'] == 'subsection']
+                for _, subsection_cm in subsection_cms.iterrows():
+                    subsection_parents[int(subsection_cm['instance'])] = int(subsection_cm['section_id'])
+
+            def parent_section_for(section_row):
+                if section_row.get('component') != 'mod_subsection':
+                    return ''
+                itemid = section_row.get('itemid')
+                if pd.isna(itemid):
+                    return ''
+                return subsection_parents.get(int(itemid), '')
+
+            if self.current_course_sections.empty:
+                self.current_course_sections['parent_section_id'] = pd.Series(dtype='object')
+            else:
+                self.current_course_sections['parent_section_id'] = (
+                    self.current_course_sections.apply(parent_section_for, axis=1))
+
             self.current_course_modules = course_modules
             self.current_course_blocks = self.get_block_content(course_id)
             

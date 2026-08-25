@@ -12,14 +12,16 @@ refresh_curriculum_staging_learn_content:
                                          book_chapter)
 
 These load into curriculum_staging.moodle_course_content and
-curriculum_staging.moodle_activity_content. Sources are the per-course folders
-written by get_moodle_courses_data.py ({idnumber}_course.csv, _books.csv,
-_pages.csv, _labels.csv, _urls.csv, _sections.csv). html_content = the
-cleanest_html column, text_content = clean_text. Course summaries are cleaned
-here with the same content_cleaners used for everything else.
+curriculum_staging.moodle_activity_content. Source is the sqlite content
+store (content.sqlite3 in course_data_dir, written by
+get_moodle_courses_data.py; tables course, sections, books, pages, labels,
+urls with the old CSV column names). html_content = the cleanest_html
+column, text_content = clean_text. Course summaries are cleaned here with
+the same content_cleaners used for everything else; cleaned assets land in
+course_data_dir/<idnumber>/ as before.
 
 Usage:
-    python build_staging_content.py                       # all course folders
+    python build_staging_content.py                       # every stored course
     python build_staging_content.py RVC_BVETMED1_2025_6   # one course
 """
 
@@ -35,7 +37,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib import config as runconfig
 from lib.content_cleaners import content_cleaners
+from lib.content_store import content_store
 
 csv.field_size_limit(10 ** 7)
 
@@ -55,22 +59,11 @@ COURSE_OUTPUT_NAME = 'course_content.csv'
 ACTIVITY_OUTPUT_NAME = 'activity_content.csv'
 
 
-def find_base_dir():
-    """COURSE_DATA_DIR (default course_data) beside this script, or absolute.
-
-    Set COURSE_DATA_DIR=course_data_uat to build the CSVs of a learn-uat fetch
-    (docs/PLAN_uat_staging.md) - an explicitly set but missing dir is an error,
-    never a silent fallback to the wrong corpus.
-    """
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.getenv('COURSE_DATA_DIR')
-    if data_dir:
-        candidate = data_dir if os.path.isabs(data_dir) else os.path.join(script_dir, data_dir)
-        if not os.path.isdir(candidate):
-            raise SystemExit(f'COURSE_DATA_DIR does not exist: {candidate}')
-        return candidate
-    candidate = os.path.join(script_dir, 'course_data')
-    return candidate if os.path.isdir(candidate) else script_dir
+def course_info(course_row):
+    """Adapt a store manifest row to the old course-info key names."""
+    info = dict(course_row)
+    info['id'] = course_row.get('course_id')
+    return info
 
 
 def to_int(value):
@@ -106,39 +99,33 @@ def clean_name(value):
     return unescape(value or '').strip()
 
 
-def load_csv(path):
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding='utf-8-sig') as f:
-        return list(csv.DictReader(f))
+def load_section_names(store, course_id):
+    """{section_id_str: display name}, parent-prefixed for delegated rows.
 
-
-def load_course_info(folder_path, prefix):
-    """{key: value} from the two-column {prefix}_course.csv (key,value rows)."""
-    path = os.path.join(folder_path, f'{prefix}_course.csv')
-    info = {}
-    if not os.path.exists(path):
-        return info
-    with open(path, encoding='utf-8-sig') as f:
-        for row in csv.reader(f):
-            if len(row) >= 2:
-                info[row[0].strip()] = row[1]
-    return info
-
-
-def load_section_names(folder_path, prefix):
-    return {
-        row.get('id', ''): clean_name(row.get('name', ''))
-        for row in load_csv(os.path.join(folder_path, f'{prefix}_sections.csv'))
+    Delegated subsections (Moodle 4.5) carry parent_section_id. The parent
+    week is the signal ("Monday" alone says nothing), so staged names carry
+    it - "Week 1 - 6th Oct › Monday" - matching what local_curricmap
+    displays and matches on.
+    """
+    rows = store.rows('sections', course_id)
+    names = {
+        str(to_int(row.get('id'))): clean_name(row.get('name') or '')
+        for row in rows
     }
+    prefixed = {}
+    for row in rows:
+        section_id = str(to_int(row.get('id')))
+        name = names.get(section_id, '')
+        parent = str(to_int(row.get('parent_section_id')))
+        parent_name = names.get(parent, '') if parent else ''
+        prefixed[section_id] = f'{parent_name} › {name}' if parent_name else name
+    return prefixed
 
 
 def active_moodle_url():
-    """Return the Moodle base URL for the corpus being built."""
-    use_uat = (
-        os.getenv('USE_UAT', 'False').strip().lower() in ('true', '1', 'yes')
-    )
-    setting = 'UAT_MOODLE_URL' if use_uat else 'MOODLE_URL'
+    """Return the Moodle base URL for the corpus being built (use_uat comes
+    from config.yaml; the URLs themselves stay in .env with the credentials)."""
+    setting = 'UAT_MOODLE_URL' if runconfig.use_uat() else 'MOODLE_URL'
     return os.getenv(setting, '').rstrip('/')
 
 
@@ -184,19 +171,22 @@ def activity_row(course_id, course_idnumber, sections, activity_type, row, prefi
     }
 
 
-def build_section_rows(folder_path, folder_name, course_id, course_idnumber,
-                       cleaner, moodle_url):
+def build_section_rows(store, folder_path, folder_name, course_id, course_idnumber,
+                       sections, cleaner, moodle_url):
     rows = []
-    path = os.path.join(folder_path, f'{folder_name}_sections.csv')
-    for row in load_csv(path):
+    for row in store.rows('sections', course_id):
         section_id = to_int(row.get('id'))
         if section_id == '':
             continue
-        section_name = clean_name(row.get('name'))
+        # The sections map carries parent-prefixed names for delegated
+        # subsections ("Week 1 - 6th Oct › Monday"); the bare name stays for
+        # the cleaner's asset naming so file paths do not churn.
+        bare_name = clean_name(row.get('name'))
+        section_name = sections.get(str(section_id), '') or bare_name
         component_item_id = to_int(row.get('itemid'))
         summary = cleaner.process_html_content(
             row.get('summary', ''), folder_path, 'section', str(section_id),
-            section_name or f'section_{section_id}', str(component_item_id))
+            bare_name or f'section_{section_id}', str(component_item_id))
         rows.append({
             'course_id': course_id,
             'course_idnumber': course_idnumber,
@@ -220,16 +210,16 @@ def build_section_rows(folder_path, folder_name, course_id, course_idnumber,
     return rows
 
 
-def build_activity_rows(folder_path, folder_name, course_id, course_idnumber,
+def build_activity_rows(store, folder_path, folder_name, course_id, course_idnumber,
                         sections, cleaner, moodle_url):
     rows = []
 
     rows.extend(build_section_rows(
-        folder_path, folder_name, course_id, course_idnumber, cleaner,
-        moodle_url))
+        store, folder_path, folder_name, course_id, course_idnumber, sections,
+        cleaner, moodle_url))
 
     # Books: one row per html chapter ('file' rows are attachment components)
-    for row in load_csv(os.path.join(folder_path, f'{folder_name}_books.csv')):
+    for row in store.rows('books', course_id):
         if row.get('chapter_type') != 'html':
             continue
         rows.append(activity_row(
@@ -237,21 +227,21 @@ def build_activity_rows(folder_path, folder_name, course_id, course_idnumber,
             item_id=to_int(row.get('chapter_id')),
             item_title=clean_name(row.get('chapter_title')),
             item_sortorder=to_int(row.get('chapter_sortorder')),
-            activity_url=row.get('chapter_url', '') or row.get('book_url', '')))
+            activity_url=row.get('chapter_url') or row.get('book_url') or ''))
 
-    # Pages: one row per file component in the raw CSV - dedupe to page grain
+    # Pages: one row per file component in the store - dedupe to page grain
     seen_pages = set()
-    for row in load_csv(os.path.join(folder_path, f'{folder_name}_pages.csv')):
+    for row in store.rows('pages', course_id):
         page_id = row.get('page_id', '')
         if page_id in seen_pages:
             continue
         seen_pages.add(page_id)
         rows.append(activity_row(course_id, course_idnumber, sections, 'page', row, 'page'))
 
-    for row in load_csv(os.path.join(folder_path, f'{folder_name}_labels.csv')):
+    for row in store.rows('labels', course_id):
         rows.append(activity_row(course_id, course_idnumber, sections, 'label', row, 'label'))
 
-    for row in load_csv(os.path.join(folder_path, f'{folder_name}_urls.csv')):
+    for row in store.rows('urls', course_id):
         rows.append(activity_row(course_id, course_idnumber, sections, 'url', row, 'url'))
 
     return rows
@@ -262,31 +252,30 @@ def main():
     parser.add_argument('course', nargs='?', help='single course folder to process')
     args = parser.parse_args()
 
-    base_dir = find_base_dir()
+    base_dir = runconfig.course_data_dir()
+    store = content_store(runconfig.sqlite_path())
     cleaner = content_cleaners()
     moodle_url = active_moodle_url()
 
+    stored = store.courses()
     if args.course:
-        folders = [args.course]
-    else:
-        folders = sorted(
-            f for f in os.listdir(base_dir)
-            if os.path.isdir(os.path.join(base_dir, f))
-            and os.path.exists(os.path.join(base_dir, f, f'{f}_course.csv'))
-        )
+        stored = [c for c in stored if (c.get('idnumber') or '') == args.course]
+        if not stored:
+            raise SystemExit(f'course not in the content store: {args.course}')
 
     course_rows = []
     activity_rows = []
-    for folder_name in folders:
+    for manifest in stored:
+        info = course_info(manifest)
+        folder_name = info.get('idnumber') or f"course_{info['id']}"
+        # Cleaned assets keep landing in a per-course directory as before.
         folder_path = os.path.join(base_dir, folder_name)
-        info = load_course_info(folder_path, folder_name)
-        if not info.get('id'):
-            print(f'SKIP {folder_name}: no usable {folder_name}_course.csv')
-            continue
+        os.makedirs(folder_path, exist_ok=True)
+        course_id = info['id']
         course_row = build_course_row(info, folder_name, cleaner, folder_path)
-        sections = load_section_names(folder_path, folder_name)
+        sections = load_section_names(store, course_id)
         acts = build_activity_rows(
-            folder_path, folder_name,
+            store, folder_path, folder_name,
             course_row['course_id'], course_row['course_idnumber'], sections,
             cleaner, moodle_url)
         course_rows.append(course_row)

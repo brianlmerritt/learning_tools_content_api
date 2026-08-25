@@ -22,7 +22,10 @@ You also need to setup Web Services (REST) and generate a user token
 
 If that user doesn't have full view all courses & categories, restrict requests to course by course or search of courses by pattern instead of find all courses.
 
-To use the Moodle Content API, you need to provide the necessary configuration settings. Update the `.env` file with your Moodle web token and other required parameters - use the .env_example to help.
+Configuration is split in two (since 2026-08-25):
+
+- `.env` — credentials and server URLs only (`MOODLE_*`, `UAT_MOODLE_*`); use `.env_example` to help.
+- `config.yaml` (committed) — run settings: `use_uat`, `course_data_dir`, and the course filters (`idnumber_search`, `idnumber_search_list`, `idnumber_list`).
 
 ## Usage
 
@@ -30,7 +33,31 @@ Once the configuration is set up, you can run the program using the following co
 
 `python3 get_moodle_courses_data.py`
 
-Files are stored in `course_data`
+Extracted content lands in a **sqlite store**: `<course_data_dir>/content.sqlite3`
+(since 2026-08-25, replacing the per-course CSV tree). Tables keep the old CSV
+column names (`sections`, `books`, `pages`, `labels`, `urls`, `files`,
+`folders`, `blocks`, `forums`), plus:
+
+- `course` — one manifest row per course with `contents_hash` and
+  `first/last_extracted_at`. A course whose `core_course_get_contents` payload
+  hashes the same as last time is **skipped** (no content refetch); pass
+  `--force` to re-extract everything.
+- `course_modules` — the true all-modules union from `get_contents`,
+  subsection cms included (the CSV era discarded this).
+- `modules` — keeps its historical (misleading) name: it is the
+  `mod_resource_get_resources_by_courses` payload.
+- `sections.parent_section_id` — owning parent for Moodle 4.5 delegated
+  subsections, empty for plain sections.
+
+`build_staging_content.py` reads the store and still writes
+`course_content.csv` / `activity_content.csv` for the curriculum_mapping
+loader; cleaned assets still land in `<course_data_dir>/<idnumber>/`.
+Delegated-section names are staged parent-prefixed ("Week 1 - 6th Oct › Monday").
+
+Still CSV-based (read the pre-sqlite `course_data*` trees, migrate when next
+needed): `build_modules_with_strands.py`, `analyse_course.py`,
+`extract_urls.py`, `analyze_csv.py`, and the sofia experiment's
+`4b_extract_import.py`.
 
 A helper utility can extract all urls from the activity content.
 

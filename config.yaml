@@ -1,0 +1,41 @@
+# Runtime configuration (non-secret). Credentials and server URLs stay in .env.
+# Committed to git deliberately - these are the run settings, not secrets.
+
+# Fetch from learn-uat (UAT_MOODLE_* credentials) instead of live (MOODLE_*).
+use_uat: false
+
+# Where course assets, staging outputs and content.sqlite3 live. Relative
+# paths resolve against this repo's root. Use a different directory per
+# environment (e.g. course_data_uat) so corpora never mix.
+course_data_dir: course_data_live
+
+# Course selection filters for get_moodle_courses_data.py.
+# idnumber_search_list: glob patterns matched against course idnumbers.
+# idnumber_list: exact idnumbers, fetched regardless of the patterns.
+idnumber_search: ""
+idnumber_search_list:
+  - "*2024*"
+  - "*2025*"
+  - "*2026*"
+# Courses for all students/staff (no year in the idnumber).
+idnumber_list:
+  - ADVICE_CENTRE
+  - DIGITAL_LEARNING_CHAMPIONS
+  - RVC_5WAYS_WELL
+  - RVC_ANATOMY
+  - RVC_BLENDED_LEARN_SURVEY
+  - RVC_CAREERS_NEW
+  - RVC_CHAPLAINCY
+  - RVC_CONSENT_MATTERS
+  - RVC_DIGITAL_SKILLS
+  - RVC_IT_HELPDESK
+  - RVC_LEARNING_RESOURCES
+  - RVC_LIBRARY_INFO
+  - RVC_NEW_GENERAL_HANDBOOK
+  - RVC_PROCT_TEST_AREA
+  - RVC_RESEARCHSEM
+  - RVC_RVCSUS
+  - RVC_Student_Course_Reps
+  - RVC_STUDENT_SUPPORT
+  - RVC_STUDY_SKILLS
+  - RVC_YOU_SAID_WE_DID

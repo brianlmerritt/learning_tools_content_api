@@ -38,15 +38,12 @@ def get_moodle_credentials():
     password = os.getenv("MOODLE_PASSWORD", None)
     if username is None or password is None:
         raise ValueError("Please set MOODLE_USER and MOODLE_PASSWORD environment variables.")
-    idnumber_list = os.getenv("IDNUMBER_LIST", "[]")
-    try:
-        parsed_list = ast.literal_eval(idnumber_list)
-        if isinstance(parsed_list, list) and parsed_list:
-            course_id = str(parsed_list[0]) # Ensure course_id is a string
-        else:
-            raise ValueError("IDNUMBER_LIST is not a non-empty list or is malformed.")
-    except Exception as e:
-        raise ValueError(f"Failed to parse IDNUMBER_LIST: {e}")
+    from lib.config import idnumber_list as configured_idnumbers
+    parsed_list = configured_idnumbers()
+    if parsed_list:
+        course_id = str(parsed_list[0]) # Ensure course_id is a string
+    else:
+        raise ValueError("idnumber_list in config.yaml is empty.")
     return moodle_base_url, username, password, course_id
 
 def login_to_moodle(session, base_url, login_path, username, password):
