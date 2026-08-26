@@ -105,10 +105,7 @@ class content_cleaners:
         """
         if not html_content:
             return html_content
-            
-        # Create output directory if it doesn't exist
-        os.makedirs(output_path, exist_ok=True)
-        
+
         soup = BeautifulSoup(html_content, 'html.parser')
         
         # Track number of images in this chapter
@@ -146,7 +143,11 @@ class content_cleaners:
                 filepath = os.path.join(output_path, filename)
                 
                 try:
-                    # Decode and save image
+                    # Decode and save image. The directory is created HERE,
+                    # not on entry: most content has no embedded images, and
+                    # creating it up front littered one empty folder per
+                    # course (Brian, 2026-08-25).
+                    os.makedirs(output_path, exist_ok=True)
                     image_data = base64.b64decode(base64_data)
                     with open(filepath, 'wb') as f:
                         f.write(image_data)

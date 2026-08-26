@@ -28,7 +28,11 @@ class ModuleHelper:
         self.component_name = component_name
         self.content_field = content_field
         self.has_subcomponents = has_subcomponents
-        self.data_store_path = 'course_data/'
+        # Where extracted embedded-image assets land, per course. Was
+        # hardcoded 'course_data/' - a latent bug once config.yaml could
+        # point the corpus elsewhere (fixed 2026-08-25).
+        from lib.config import course_data_dir
+        self.data_store_path = course_data_dir() + '/'
 
     # Get and process the content of a module (course activity)
     def get_mod_content(self, course_modules: pd.DataFrame, course: dict) -> pd.DataFrame:
