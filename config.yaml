@@ -7,7 +7,7 @@ use_uat: false
 # Where course assets, staging outputs and content.sqlite3 live. Relative
 # paths resolve against this repo's root. Use a different directory per
 # environment (e.g. course_data_uat) so corpora never mix.
-course_data_dir: course_data_live
+course_data_dir: course_data
 
 # Course selection filters for get_moodle_courses_data.py.
 # idnumber_search_list: glob patterns matched against course idnumbers.

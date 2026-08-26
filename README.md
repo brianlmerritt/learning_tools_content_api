@@ -22,6 +22,14 @@ You also need to setup Web Services (REST) and generate a user token
 
 If that user doesn't have full view all courses & categories, restrict requests to course by course or search of courses by pattern instead of find all courses.
 
+Minimum access (verified on live, 2026-08-25): a COURSE VIEWER role for the
+token's user is enough for this app - it needs to enter course contexts
+without enrolment (`moodle/course:view`, plus view-hidden capabilities if
+hidden courses matter), not to edit anything. A system-level editing teacher
+alone is NOT enough (that archetype lacks `moodle/course:view`), which
+presents as "Course or activity not accessible" on every unenrolled course
+and an almost-empty full course list.
+
 Configuration is split in two (since 2026-08-25):
 
 - `.env` — credentials and server URLs only (`MOODLE_*`, `UAT_MOODLE_*`); use `.env_example` to help.
@@ -53,11 +61,15 @@ column names (`sections`, `books`, `pages`, `labels`, `urls`, `files`,
 `course_content.csv` / `activity_content.csv` for the curriculum_mapping
 loader; cleaned assets still land in `<course_data_dir>/<idnumber>/`.
 Delegated-section names are staged parent-prefixed ("Week 1 - 6th Oct › Monday").
+It is transitional: the plan (2026-08-25) is for the staging loader to read
+`content.sqlite3` directly, after which this script retires.
 
 Still CSV-based (read the pre-sqlite `course_data*` trees, migrate when next
-needed): `build_modules_with_strands.py`, `analyse_course.py`,
-`extract_urls.py`, `analyze_csv.py`, and the sofia experiment's
-`4b_extract_import.py`.
+needed): `analyse_course.py`, `extract_urls.py`, `analyze_csv.py`, and the
+sofia experiment's `4b_extract_import.py`. NOTE: 4b reads per-course
+`{idnumber}_modules_with_strands.csv` files, which are NO LONGER produced -
+migrate 4b to read the store's `modules_with_strands` table before its next
+use.
 
 A helper utility can extract all urls from the activity content.
 
@@ -74,24 +86,30 @@ A helper utility can extract all urls from the activity content.
 - URLs
 - Forums
 
-## Strand mapping (build_modules_with_strands.py)
+## Strand mapping (part of get_moodle_courses_data.py since 2026-08-25)
 
-After `get_moodle_courses_data.py` has populated `course_data/`, run:
+Strand mapping runs at the END of every `get_moodle_courses_data.py` run, so
+the sqlite store is complete at fetch time. Two passes over the store: pass 1
+collects the strand-map legends across every stored course, pass 2 rebuilds
+each course's rows (pure local computation, no API calls - a full rebuild per
+run keeps everything consistent with the freshest legends). The logic lives
+in `lib/strand_mapping.py` (carried verbatim from the superseded
+`build_modules_with_strands.py`, which remains only as the CSV-corpus-era
+tool and is not maintained). Note: on learn-uat copies of live courses the
+strand-map week table resolves to 0 entries by design - the page HTML links
+to LIVE cmids that do not exist in the copy.
 
-`python3 build_modules_with_strands.py`            # all courses
-`python3 build_modules_with_strands.py <folder>`   # one course
+Outputs are STORE TABLES ONLY (sqlite-only output, ruled later 2026-08-25 -
+no per-course folders or CSVs from the fetch beyond `log_events.csv`):
 
-Outputs, per course and combined:
-
-- `{course}_modules_with_strands.csv` - one row per content item (books,
-  pages, labels, URLs, resources, folders, forums) with section, strand,
-  sub-strand, week and `in_strand_map`.
-- `course_data/all_modules_with_strands.csv` - all courses combined.
-- `course_data/all_courses_with_strands.csv` - one row per course:
-  course id/fullname/shortname/category, `course_strand` (see below),
-  `has_strand_map`, item counts. The course-level companion to the
-  per-item CSV (together they prefigure the planned two-table
-  moodle_content design: course table + content table).
+- `modules_with_strands` - one row per content item (books, pages, labels,
+  URLs, resources, folders, forums) with section, strand, sub-strand, week
+  and `in_strand_map`. Replaced per course, so single-course reprocessing
+  never clobbers the estate.
+- `courses_with_strands` - one row per course: course id/fullname/
+  shortname/category, `course_strand` (see below), `has_strand_map`, item
+  counts. The course-level companion to the per-item table (together they
+  prefigure the planned two-table moodle_content design).
 
 Strand assignment, in priority order:
 

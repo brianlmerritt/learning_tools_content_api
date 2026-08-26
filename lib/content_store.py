@@ -131,6 +131,24 @@ class content_store:
             'SELECT * FROM course WHERE course_id = ?', (int(course_id),)).fetchone()
         return dict(row) if row else None
 
+    def csv_rows(self, table, course_id=None):
+        """rows(), but every value stringified the way csv.DictReader used to
+        deliver them (None -> '', everything else str) - the compatibility
+        surface for readers written against the CSV corpus whose string
+        handling (.strip(), '' tests, '82131.0' ids) predates the store."""
+        return [
+            {key: '' if value is None else str(value) for key, value in row.items()}
+            for row in self.rows(table, course_id)
+        ]
+
+    def replace_course_rows(self, name, course_id, rows):
+        """Replace one course's rows in a DERIVED table (e.g.
+        modules_with_strands) from a list of dicts or a DataFrame - so
+        single-course rebuilds never clobber the rest of the estate."""
+        frame = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(rows or [])
+        with self.connection:
+            self._replace_table(name, int(course_id), frame)
+
     def rows(self, table, course_id=None):
         """A table's rows as dicts (same keys as the old CSV headers).
         Missing table = empty list, matching load_csv on a missing file."""

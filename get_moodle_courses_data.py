@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from lib import config
+from lib import strand_mapping
 from lib.content_store import content_store
 from lib.moodle_rest import moodle_rest
 from lib.moodle_content_helpers import moodle_content_helpers
@@ -79,6 +80,26 @@ for _, current_course in current_courses.iterrows():
         failed.append((label, str(exception)))
         print(f"FAILED, skipping: {label} - {exception}")
 
-print(f"\nDone. {skipped} unchanged course(s) skipped, {len(failed)} failed.")
+print(f"\nFetch done. {skipped} unchanged course(s) skipped, {len(failed)} failed.")
 for label, message in failed:
     print(f"  FAILED {label}: {message}")
+
+# Strand map (ruled 2026-08-25: built HERE, so the store is complete at fetch
+# time). Pure local computation over the store - no API calls - so a full
+# rebuild each run keeps every course consistent with the freshest legends.
+# Store tables only (sqlite-only output, ruled later 2026-08-25): consumers
+# read modules_with_strands / courses_with_strands from content.sqlite3.
+print("\nBuilding strand map ...")
+master_legend = strand_mapping.collect_master_legend(store)
+print(f"Master strand legend: {len(master_legend)} codes")
+strand_courses = 0
+for manifest in store.courses():
+    strand_rows, local_legend, course_record = strand_mapping.process_course(
+        store, manifest, master_legend)
+    master_legend.update(local_legend)
+    course_id = manifest['course_id']
+    store.replace_course_rows('modules_with_strands', course_id, strand_rows)
+    store.replace_course_rows('courses_with_strands', course_id, [course_record])
+    strand_courses += 1
+
+print(f"\nDone. Strand map built for {strand_courses} course(s).")

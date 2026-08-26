@@ -1,8 +1,5 @@
 from typing import Dict, List, Tuple, Any
 import pandas as pd
-import os
-import json
-import csv
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse, parse_qs
@@ -83,29 +80,6 @@ class moodle_content_helpers:
         })
         return
 
-    def save_item_raw(self, item_to_save, directory, filename):
-        if isinstance(item_to_save, pd.DataFrame) :
-            os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
-            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", index=False, encoding='utf-8-sig')
-        elif isinstance(item_to_save, pd.Series):
-            os.makedirs(os.path.dirname(f"{self.data_store_path}{directory}/{filename}.csv"), exist_ok=True)
-            item_to_save.to_csv(f"{self.data_store_path}{directory}/{filename}.csv", header=False, encoding='utf-8-sig')
-        elif isinstance(item_to_save, dict):
-            with open(f"{self.data_store_path}{directory}/{filename}.json", "w", encoding='utf-8') as file:
-                json.dump(item_to_save, file)
-        elif isinstance(item_to_save, list):
-            with open(f"{self.data_store_path}{directory}/{filename}.csv", "w", newline='', encoding='utf-8-sig') as file:
-                writer = csv.writer(file)
-                writer.writerows(item_to_save)
-        return
-
-    def append_course_modules(self, course_modules, directory):
-        full_directory_path = os.path.join(self.data_store_path, directory)
-        os.makedirs(full_directory_path, exist_ok=True)  # Ensure the directory exists
-        # Plain utf-8 (no BOM): append mode would write a BOM mid-file on every call
-        course_modules.to_csv(os.path.join(full_directory_path, "course_modules.csv"), mode='a', index=False, encoding='utf-8')
-        return
-    
     def extract_file_details(self, content, all_files):
         file_details = [] # Todo make this work, add mod type perhaps
         return file_details
@@ -136,9 +110,6 @@ class moodle_content_helpers:
         elif 'modname' not in course_resources.columns:
             course_resources = course_resources.copy()
             course_resources['modname'] = pd.Series(dtype='object')
-
-        # Temp debug code
-        self.append_course_modules(course_modules, "debug")
 
         course_block_content = self.block_content.get_block_content(course_blocks, course, course_resources)
         course_book_content = self.book_content.get_book_content(course_modules, course)
